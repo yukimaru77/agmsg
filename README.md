@@ -260,6 +260,17 @@ The command updates `db/config.yaml`, rewrites the project's hook entries, and p
 /agmsg reset                            — clear current project registration
 ```
 
+Natural-language team requests are accepted too. Examples:
+
+```
+/agmsg join team backend as reviewer
+/agmsg backendチームにreviewerとして入って
+```
+
+Those requests run `join.sh` under the hood. They add the team/role and make it
+the preferred team for this session; they do not remove old team memberships
+unless you explicitly ask to drop/reset/leave.
+
 ### Codex
 
 ```

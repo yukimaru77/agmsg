@@ -111,6 +111,14 @@ Then continue with the user's subcommand. This catches the case where the user i
 
 The allowlist merges across scopes and takes effect immediately — no restart needed. (The `BASH_SOURCE`-empty case under the sandbox — the Bash tool runs commands via pipe/eval, so `BASH_SOURCE[0]` is empty inside sourced functions — is handled internally: `watch.sh` resolves `SKILL_DIR` from `$0` and `storage.sh` falls back to it. No user configuration needed.)
 
+**Natural-language requests.** If the argument is not one of the exact command forms below but clearly asks to join, create, switch, or become an agmsg team/role, handle it instead of rejecting it. Examples: "join team backend as reviewer", "backendチームにreviewerとして入って", "別のチーム backend になって", "team backend, name reviewer".
+1. Parse the requested `<team>` and `<agent_name>` when present.
+2. If `<team>` is missing, ask for it. If `<agent_name>` is missing, use the current AGENT when exactly one identity is known; otherwise ask for the name.
+3. Run: `~/.agents/skills/__SKILL_NAME__/scripts/join.sh <team> <agent_name> claude-code "$(pwd)"`
+4. Update this session's AGENT to `<agent_name>` and treat `<team>` as the preferred team for later ambiguous send/history/team commands.
+5. Do not remove old team memberships unless the user explicitly asks to drop, reset, or leave; then use the existing drop/reset flow.
+6. Show the result, then check inbox for the joined team with `~/.agents/skills/__SKILL_NAME__/scripts/inbox.sh <team> <agent_name>`.
+
 **If no arguments provided (DEFAULT action — always do this when the command is invoked without arguments):**
 1. **IMMEDIATELY** run inbox check for each TEAM: `~/.agents/skills/__SKILL_NAME__/scripts/inbox.sh $TEAM $AGENT`
 2. Do NOT ask the user what to do — just run the inbox check.

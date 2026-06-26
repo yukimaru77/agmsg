@@ -36,6 +36,13 @@ teardown() {
   [[ "$output" =~ "hello from install" ]]
 }
 
+@test "install: generated SKILL.md accepts natural-language team join requests" {
+  HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg
+  grep -Fq "Natural-language requests" "$SK/SKILL.md"
+  grep -Fq "join team backend as reviewer" "$SK/SKILL.md"
+  grep -Fq 'join.sh <team> <agent_name> codex "$(pwd)"' "$SK/SKILL.md"
+}
+
 @test "install: --update restores scripts/lib even if it went missing" {
   HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg
   rm -rf "$SK/scripts/lib"

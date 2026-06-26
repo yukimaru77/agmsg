@@ -52,10 +52,9 @@ Four possible outputs:
        2) off     — No automatic delivery
                     Manual $__SKILL_NAME__ only.
 
-       3) monitor — Real-time push (BETA, advanced)
-                    Installs a `codex` shim on PATH and routes launches through an
-                    app-server bridge. Opt in ONLY if you understand PATH precedence
-                    and accept experimental behavior. See docs/codex-monitor-beta.md.
+       3) monitor — Real-time push
+                    Enable live incoming-message delivery for Codex sessions that
+                    support agmsg monitoring.
 
      [1]:
      ```
@@ -63,7 +62,7 @@ Four possible outputs:
      - **Wait for the user's answer before proceeding.** Empty input means `1` (turn).
      - Map the chosen number to a mode (`1`→`turn`, `2`→`off`, `3`→`monitor`) and run:
        `~/.agents/skills/__SKILL_NAME__/scripts/delivery.sh set <mode> codex "$(pwd)"`
-     - If monitor is chosen, tell the user: "Codex monitor is a BETA that changes how `codex` starts — it installs a `codex` shim and needs `~/.agents/bin` first on PATH. If the output says `~/.agents/bin` is not on PATH, add `export PATH=\"$HOME/.agents/bin:$PATH\"` to your shell profile, restart the shell, then launch future sessions with normal `codex`. If shim installation was refused because `~/.agents/bin/codex` already exists, use `~/.agents/skills/__SKILL_NAME__/scripts/drivers/types/codex/codex-monitor.sh` or resolve that command conflict. The bridge starts on the **first turn** of a new Codex session (the SessionStart hook fires on your first message, not the moment Codex opens), so **restart your Codex session and send one message for monitor to take effect** — this already-running session stays unmonitored until it restarts. For more info: https://github.com/fujibee/agmsg/blob/main/docs/codex-monitor-beta.md"
+     - If monitor is chosen, tell the user: "Delivery mode set to 'monitor'. Incoming messages will use the configured Codex monitor integration. If the current session does not pick up delivery changes immediately, start a fresh Codex session."
 
   6. Then check inbox for the newly joined team.
 
@@ -112,7 +111,7 @@ If argument starts with "actas" followed by an agent name (e.g. "actas alice"):
 2. Run `~/.agents/skills/__SKILL_NAME__/scripts/identities.sh "$(pwd)" codex` to see whether the role is already registered for this (project, type).
 3. If the name does not appear in the output, join under the existing team. For a single team, run `~/.agents/skills/__SKILL_NAME__/scripts/join.sh <team> <name> codex "$(pwd)"`. For multiple teams, ask the user which team to join the new role into.
 4. Set the session's active FROM to `<name>` for every `send.sh` call until another `actas`.
-5. Tell the user: "Now acting as `<name>`. Sends will use `<name>` as the from agent. (Codex has no Monitor tool, so receive still covers all of your registered roles in this project.)"
+5. Tell the user: "Now acting as `<name>`. Sends will use `<name>` as the from agent. Receive still covers all of your registered roles in this project."
 
 If argument starts with "drop" followed by an agent name (e.g. "drop alice"):
 1. Parse the role name.
@@ -124,7 +123,7 @@ If argument starts with "spawn" (e.g. "spawn claude-code alice", "spawn codex re
 1. Parse `<type>` (must be `claude-code` or `codex`), `<name>`, and any options (`--project`, `--team`, `--window`, `--split h|v`, `--terminal`, `--no-wait`, `--ready-timeout <secs>`).
 2. Run: `~/.agents/skills/__SKILL_NAME__/scripts/spawn.sh <type> <name> --project "$(pwd)" [options]`
    - spawn.sh pre-joins `<name>`, then opens a tmux pane/window (when this session is inside tmux) or a new OS terminal, and launches the target CLI with `/__SKILL_NAME__ actas <name>` as its initial prompt.
-   - By default it BLOCKS until a spawned claude-code agent's watcher attaches (`status=ready`); `status=timeout` + exit 3 if not ready within `--ready-timeout` (default 90s). `--no-wait` for fire-and-forget. Spawning a codex agent skips the wait (codex has no Monitor).
+   - By default it BLOCKS until a spawned claude-code agent's watcher attaches (`status=ready`); `status=timeout` + exit 3 if not ready within `--ready-timeout` (default 90s). `--no-wait` for fire-and-forget. Spawning a codex agent skips the readiness wait.
    - It refuses early if `<name>` is already held by another live session, if the target CLI is not installed, or if there is no tmux and no usable terminal (headless).
 3. Show the script's output.
 
@@ -141,9 +140,9 @@ If argument is "mode" (no further args):
 2. Show the output to the user.
 
 If argument starts with "mode" followed by a mode name (e.g. "mode monitor"):
-1. Parse the mode. Codex supports `monitor` (beta bridge), `turn`, and `off` — reject `both` with: "Codex bridge beta supports `monitor`, `turn`, or `off`; `both` is not supported yet."
+1. Parse the mode. Codex supports `monitor`, `turn`, and `off` — reject `both` with: "Codex supports `monitor`, `turn`, or `off`; `both` is not supported yet."
 2. Run: `~/.agents/skills/__SKILL_NAME__/scripts/delivery.sh set <mode> codex "$(pwd)"`
-3. If mode is `monitor`, tell the user: "Codex monitor beta is enabled. agmsg installs an optional `codex` shim automatically. If the output says `~/.agents/bin` is not on PATH, add `export PATH=\"$HOME/.agents/bin:$PATH\"` to your shell profile, restart the shell, then launch future sessions with normal `codex`. If shim installation was refused because `~/.agents/bin/codex` already exists, use `~/.agents/skills/__SKILL_NAME__/scripts/drivers/types/codex/codex-monitor.sh` or resolve that command conflict. The bridge starts on the **first turn** of a new Codex session (the SessionStart hook fires on your first message, not the moment Codex opens), so **restart your Codex session and send one message for monitor to take effect** — this already-running session stays unmonitored until it restarts. For more info: https://github.com/fujibee/agmsg/blob/main/docs/codex-monitor-beta.md"
+3. If mode is `monitor`, tell the user: "Delivery mode set to 'monitor'. Incoming messages will use the configured Codex monitor integration. If the current session does not pick up delivery changes immediately, start a fresh Codex session."
 
 If argument is "hook on" (legacy alias):
 1. Run: `~/.agents/skills/__SKILL_NAME__/scripts/delivery.sh set turn codex "$(pwd)"`

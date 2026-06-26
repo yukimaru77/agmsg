@@ -46,21 +46,21 @@ Four possible outputs:
      ```
      Choose delivery mode for incoming messages:
 
-       1) turn    — Check inbox at the end of each assistant turn
-                    Stop hook pulls after each response. Recommended for Codex.
+      1) monitor — Real-time push
+                   Enable live incoming-message delivery for Codex sessions that
+                   support agmsg monitoring.
 
-       2) off     — No automatic delivery
-                    Manual $__SKILL_NAME__ only.
+      2) turn    — Check inbox at the end of each assistant turn
+                   Stop hook pulls after each response.
 
-       3) monitor — Real-time push
-                    Enable live incoming-message delivery for Codex sessions that
-                    support agmsg monitoring.
+      3) off     — No automatic delivery
+                   Manual $__SKILL_NAME__ only.
 
      [1]:
      ```
 
-     - **Wait for the user's answer before proceeding.** Empty input means `1` (turn).
-     - Map the chosen number to a mode (`1`→`turn`, `2`→`off`, `3`→`monitor`) and run:
+     - **Wait for the user's answer before proceeding.** Empty input means `1` (monitor).
+     - Map the chosen number to a mode (`1`→`monitor`, `2`→`turn`, `3`→`off`) and run:
        `~/.agents/skills/__SKILL_NAME__/scripts/delivery.sh set <mode> codex "$(pwd)"`
      - If monitor is chosen, tell the user: "Delivery mode set to 'monitor'. Incoming messages will use the configured Codex monitor integration. If the current session does not pick up delivery changes immediately, start a fresh Codex session."
 
@@ -123,7 +123,7 @@ If argument starts with "spawn" (e.g. "spawn claude-code alice", "spawn codex re
 1. Parse `<type>` (must be `claude-code` or `codex`), `<name>`, and any options (`--project`, `--team`, `--window`, `--split h|v`, `--terminal`, `--no-wait`, `--ready-timeout <secs>`).
 2. Run: `~/.agents/skills/__SKILL_NAME__/scripts/spawn.sh <type> <name> --project "$(pwd)" [options]`
    - spawn.sh pre-joins `<name>`, then opens a tmux pane/window (when this session is inside tmux) or a new OS terminal, and launches the target CLI with `/__SKILL_NAME__ actas <name>` as its initial prompt.
-   - By default it BLOCKS until a spawned claude-code agent's watcher attaches (`status=ready`); `status=timeout` + exit 3 if not ready within `--ready-timeout` (default 90s). `--no-wait` for fire-and-forget. Spawning a codex agent skips the readiness wait.
+   - By default it BLOCKS until a spawned claude-code agent's watcher attaches (`status=ready`); `status=timeout` + exit 3 if not ready within `--ready-timeout` (default 90s). `--no-wait` for fire-and-forget. Codex spawned sessions currently skip the actas-specific readiness wait.
    - It refuses early if `<name>` is already held by another live session, if the target CLI is not installed, or if there is no tmux and no usable terminal (headless).
 3. Show the script's output.
 
@@ -131,7 +131,7 @@ If argument starts with "despawn" (e.g. "despawn reviewer", "despawn alice --for
 1. Parse `<name>` and any options (`--force`, `--timeout <secs>`). `despawn` is the inverse of `spawn` — it tears down a member you previously spawned.
 2. Determine which team `<name>` belongs to (as with `send`), then run:
    `~/.agents/skills/__SKILL_NAME__/scripts/despawn.sh <team> $AGENT <name> [--force] [--timeout <secs>]`
-   - Default (graceful): sends a `ctrl:despawn` control message to `<name>`. A claude-code member's watcher drops its own role and closes its own tmux pane, ending the agent. Blocks until the lock releases, up to `--timeout` (default 30s), then prints `status=ok`. On timeout it prints `status=timeout` and exits 3 — retry with `--force`. A codex member has no watcher to respond, so use `--force` for it.
+   - Default (graceful): sends a `ctrl:despawn` control message to `<name>`. A claude-code member's watcher drops its own role and closes its own tmux pane, ending the agent. Blocks until the lock releases, up to `--timeout` (default 30s), then prints `status=ok`. On timeout it prints `status=timeout` and exits 3 — retry with `--force`.
    - `--force`: skips the message and tears the member down from the placement recorded at spawn time — kills its tmux pane/window and drops its registration.
 3. Show the script's output.
 

@@ -8,7 +8,7 @@ source "$(cd "$(dirname "$0")" && pwd)/lib/compat.sh"
 # Usage: session-start.sh <type> <project_path>
 #
 # Reads the hook input JSON from stdin to extract the session_id, then emits
-# an instruction telling Claude to invoke the Monitor tool against watch.sh.
+# an instruction telling the agent to invoke the Monitor tool against watch.sh.
 # The hook input includes session_id for SessionStart events.
 #
 # Before emitting the directive, this script also takes care of preventing
@@ -51,10 +51,10 @@ PAIRS=$("$SCRIPT_DIR/identities.sh" "$PROJECT" "$TYPE" 2>/dev/null || true)
 
 # Type-specific SessionStart behaviour (Template Method). A type may ship
 # scripts/drivers/types/<type>/_session-start.sh defining agmsg_session_start to override the
-# default no-op — codex uses it to hand the session off to the bridge. The plug
+# default no-op — legacy codex bridge mode uses it to hand the session off to the bridge. The plug
 # is sourced in this script's context so it sees PROJECT / RUN_DIR / SKILL_DIR /
-# PAIRS and the helpers sourced above; it may exit 0 (codex does, having no
-# Monitor tool) to skip the Monitor-directive path below.
+# PAIRS and the helpers sourced above; it may exit 0 to skip the Monitor-directive
+# path below when the type owns delivery itself.
 agmsg_session_start_default() { :; }
 
 _tdir="$(agmsg_type_dir "$TYPE" 2>/dev/null || true)"

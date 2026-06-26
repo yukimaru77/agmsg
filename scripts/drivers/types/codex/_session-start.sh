@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# codex SessionStart plug — hand the session off to the Codex bridge.
+# codex SessionStart plug — optional legacy bridge handoff.
 #
 # Sourced by session-start.sh in its global context (so it sees TYPE, PROJECT,
 # RUN_DIR, SKILL_DIR, SCRIPT_DIR, PAIRS and the helpers agmsg_sha1,
 # agmsg_sqlite_mem, agmsg_resolve_node, agmsg_canonical_path, agmsg_agent_pid).
-# Defines agmsg_session_start, overriding session-start.sh's default no-op.
+# Defines agmsg_session_start, overriding session-start.sh's default no-op only
+# when AGMSG_CODEX_BRIDGE=1.
 #
-# Codex has no Monitor tool. When launched through codex-monitor.sh, the TUI is
-# attached to a shared app-server. Hand the bridge off so incoming agmsg rows
-# become turns in the current Codex thread without exposing socket/thread
+# Normal Codex monitor mode falls through to session-start.sh's generic Monitor
+# directive. When launched through codex-monitor.sh, the TUI is attached to a
+# shared app-server. In that legacy path, hand the bridge off so incoming agmsg
+# rows become turns in the current Codex thread without exposing socket/thread
 # plumbing to the user. With AGMSG_CODEX_BRIDGE_LAUNCHER=1 (set by
 # codex-monitor.sh) we only write a request file and let the out-of-sandbox
-# launcher start the bridge — a hook-launched bridge cannot connect to the unix
+# launcher start the bridge — a hook-launched bridge cannot connect to the
 # socket from inside the Codex sandbox (#41).
 
 # Resolve the current Codex thread id. CODEX_THREAD_ID is only exported on the
@@ -60,6 +62,8 @@ INNER_EOF
 }
 
 agmsg_session_start() {
+  [ "${AGMSG_CODEX_BRIDGE:-}" = "1" ] || return 0
+
   thread_id="$(agmsg_resolve_codex_thread "$PROJECT")"
   [ -n "$thread_id" ] || exit 0
   app_server="${AGMSG_CODEX_BRIDGE_APP_SERVER:-}"
@@ -70,6 +74,20 @@ agmsg_session_start() {
       app_server=$(printf '%s\n' "$agent_cmd" \
         | sed -n 's/.*\(unix:\/\/[^[:space:]]*\).*/\1/p' \
         | head -1)
+      [ -z "$app_server" ] && app_server=$(printf '%s\n' "$agent_cmd" \
+        | sed -n 's#.*\(ws://[^[:space:]]*\).*#\1#p' \
+        | head -1)
+    fi
+  fi
+  if [ -z "$app_server" ]; then
+    project_hash=$(printf '%s' "$PROJECT" | agmsg_sha1)
+    port_file="$RUN_DIR/codex-app-server.$project_hash.port"
+    if [ -s "$port_file" ]; then
+      port=$(cat "$port_file" 2>/dev/null || true)
+      case "$port" in
+        ''|*[!0-9]*) ;;
+        *) app_server="ws://127.0.0.1:$port" ;;
+      esac
     fi
   fi
   if [ -z "$app_server" ]; then

@@ -4,7 +4,8 @@
 # The bridge is a Node program, but a version-manager Node (nvm / fnm / volta) is
 # only placed on PATH by an interactive shell's init. A bridge launched from a
 # non-interactive context — e.g. a spawn boot script — therefore cannot find it
-# via the `#!/usr/bin/env node` shebang, and Codex monitor silently never starts.
+# via the `#!/usr/bin/env node` shebang, and the legacy Codex bridge silently
+# never starts.
 #
 # Search order: an explicit override (AGMSG_NODE, then AGMSG_CODEX_NODE for
 # back-compat) → active PATH (honours a loaded version manager) → common

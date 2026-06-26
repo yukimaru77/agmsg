@@ -58,7 +58,7 @@ EOF
 @test "codex-bridge: help exits successfully" {
   run node "$TYPES/codex/codex-bridge.js" --help
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "Beta Codex app-server bridge" ]]
+  [[ "$output" =~ "Legacy Codex app-server bridge" ]]
 }
 
 @test "codex-bridge: resolve-only prints the selected identity" {

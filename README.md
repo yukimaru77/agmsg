@@ -54,7 +54,7 @@ npx agmsg
 #    OpenCode:     $agmsg
 ```
 
-That's it. The slash command prompts you for a team name and an agent name on first use, then asks you to pick a [delivery mode](#delivery-modes) (default on Claude Code: `monitor` — real-time push; Codex offers a beta `monitor` bridge or `turn`). After that, you talk to your agent naturally — see [First run](#first-run) below.
+That's it. The slash command prompts you for a team name and an agent name on first use, then asks you to pick a [delivery mode](#delivery-modes) (default on Claude Code and Codex: `monitor` — real-time push). After that, you talk to your agent naturally — see [First run](#first-run) below.
 
 Prefer to inspect the code first, track the latest `main`, or pick a custom command name? See [Install](#install) below for the `setup.sh` one-liner, `git clone`, and the Claude Code plugin marketplace paths.
 
@@ -184,7 +184,7 @@ Where `actas` switches *this* session to a different role, `spawn` brings up a *
 
 `spawn <type> <name>` pre-joins `<name>`, then launches the target CLI with the actas slash command (`/<your-command> actas <name>`, matching your install command name) as its initial prompt. If the current session is inside **tmux**, it opens in a new pane (or `--window` for a new window, `--split h|v` for the direction); otherwise it opens a new **OS terminal** window.
 
-By default `spawn` **blocks until the new agent is actually listening** — its watcher attaches and touches a readiness sentinel — then prints `status=ready`, so you can send work the moment `spawn` returns without losing it to the agent's cold start. Use `--no-wait` for fire-and-forget, or `--ready-timeout <secs>` to bound the wait (default 90; on timeout it prints `status=timeout` and exits 3 so a caller can re-spawn). Codex skips the wait (it has no Monitor).
+By default `spawn` **blocks until the new agent is actually listening** — its watcher attaches and touches a readiness sentinel — then prints `status=ready`, so you can send work the moment `spawn` returns without losing it to the agent's cold start. Use `--no-wait` for fire-and-forget, or `--ready-timeout <secs>` to bound the wait (default 90; on timeout it prints `status=timeout` and exits 3 so a caller can re-spawn). Codex spawned sessions currently skip the actas-specific readiness wait.
 
 Options: `--project <path>` (default: current project), `--team <team>` (auto-resolved when the project has a single team), and `--terminal <tmpl>` / `$AGMSG_TERMINAL` / config `spawn.terminal` to override the terminal command on the non-tmux path (a `{cmd}` placeholder is replaced with the path to the generated boot script). On macOS the default opens whichever terminal you're currently in (iTerm or Terminal, via `$TERM_PROGRAM`) using `open -a` — a plain app launch, so it does **not** trigger the Automation/AppleScript permission prompts that scripting the terminal directly would.
 
@@ -201,7 +201,7 @@ Only `claude-code` and `codex` are supported today. macOS is the primary target;
 
 By default `despawn <name>` is **graceful**: it sends a `ctrl:despawn` control message to `<name>`, whose watcher drops its own role (releasing the actas lock and registration) and closes its own tmux pane — ending the agent. It blocks until the role is released, up to `--timeout <secs>` (default 30), then prints `status=ok`. If the member's watcher never responds it prints `status=timeout` and exits 3 — retry with `--force`.
 
-`--force` skips the message and tears the member down from the placement recorded at spawn time: it kills the member's tmux pane/window and drops its registration. Use it when the member's watcher can't respond — a dead watcher, or a **codex** member (no Monitor, so graceful has nothing to act on). A member started by hand (no spawn placement record) can't be `--force`d; despawn says so and leaves it for you to close.
+`--force` skips the message and tears the member down from the placement recorded at spawn time: it kills the member's tmux pane/window and drops its registration. Use it when the member's watcher can't respond, or when a spawned member's runtime does not support graceful teardown for that session. A member started by hand (no spawn placement record) can't be `--force`d; despawn says so and leaves it for you to close.
 
 Despawn only acts on the named member — the session running `despawn` is never torn down, and a broad-subscription watcher ignores a `ctrl:despawn` aimed at another role.
 
@@ -211,22 +211,22 @@ How incoming messages reach your agent. Pick one at first join via the prompt, o
 
 | mode | mechanism | latency | who it's for |
 |---|---|---|---|
-| **`monitor`** (default on Claude Code) | SessionStart hook → Monitor tool → blocking SQLite stream | ~5s | Claude Code users wanting real-time push |
-| **`turn`** (default on Codex / Copilot CLI / OpenCode) | Stop hook fires `check-inbox.sh` between assistant turns | until your next interaction | Codex / Copilot CLI / OpenCode (no Monitor tool); Claude Code users on a quieter loop |
+| **`monitor`** (default on Claude Code and Codex) | SessionStart hook → Monitor tool → blocking SQLite stream | ~5s | Monitor-capable runtimes wanting real-time push |
+| **`turn`** (default on Copilot CLI / OpenCode) | Stop hook fires `check-inbox.sh` between assistant turns | until your next interaction | Copilot CLI / OpenCode; Claude Code or Codex users on a quieter loop |
 | **`both`** | monitor primary, turn as per-session safety net | ~5s; falls back to turn-end on watcher failure | belt-and-suspenders |
 | **`off`** | no automatic delivery | manual `/agmsg` only | minimalists |
 
 ### Picking a mode
 
 ```
-/agmsg mode monitor    — switch this project to real-time push (Claude Code)
+/agmsg mode monitor    — switch this project to real-time push
 /agmsg mode turn       — switch to between-turns checking
 /agmsg mode both       — monitor with turn as a safety net
 /agmsg mode off        — manual /agmsg only
 /agmsg mode            — show current mode
 ```
 
-Settings are per-project. Each `<project>/.claude/settings.local.json` gets exactly the hooks the chosen mode needs — repeated `set` calls are idempotent.
+Settings are per-project. The runtime hook file (for example `<project>/.claude/settings.local.json` or `<project>/.codex/hooks.json`) gets exactly the hooks the chosen mode needs — repeated `set` calls are idempotent.
 
 **Monitor priming**: in `monitor` mode, the receiving agent doesn't react to its first inbound message until it has taken at least one turn this session. If you've just started a fresh session and a teammate has already sent something, nudge the agent with any short message ("hi") to prime it — subsequent messages stream in real time.
 
@@ -266,11 +266,9 @@ The command updates `db/config.yaml`, rewrites the project's hook entries, and p
 $agmsg                          — or /skills → agmsg
 ```
 
-Codex supports `mode monitor` as a **beta** app-server bridge, plus `mode turn` and `mode off`.
+Codex supports `mode monitor`, `mode turn`, and `mode off`; `monitor` is the normal default. `delivery.sh set monitor codex "$PWD"` installs Codex SessionStart/SessionEnd hooks and uses Codex's Monitor integration to launch the agmsg watcher. It does **not** require a `codex` shim or PATH changes.
 
-> ⚠️ **The monitor beta changes how Codex starts — opt in only if you understand it.** Codex has no Monitor tool, so `mode monitor` installs a shim at `~/.agents/bin/codex` and asks you to put `~/.agents/bin` **first on your PATH**, so `codex` then resolves to the shim instead of the real binary. In monitor-mode projects the shim routes interactive launches through a bridge that turns incoming agmsg messages into turns on the current Codex thread; `codex exec` and non-monitor projects pass straight through to the real Codex. It depends on experimental Codex app-server behavior and has known rough edges (orphans on TUI close — #149; one identity per project — #150).
-
-If the shim can't be installed, launch with `~/.agents/skills/<cmd>/scripts/drivers/types/codex/codex-monitor.sh`. Codex sandboxing must allow writes to the skill's `db/`, `teams/`, and `run/` dirs — `install.sh` configures those `writable_roots` when `~/.codex/config.toml` exists. Setup, PATH notes, and internals: [docs/codex-monitor-beta.md](docs/codex-monitor-beta.md).
+The old app-server bridge is still available as an explicit compatibility path for Codex builds without usable native Monitor support. Launch it directly with `~/.agents/skills/<cmd>/scripts/drivers/types/codex/codex-monitor.sh`, or install the optional shim only if you intentionally want interactive `codex` launches routed through that wrapper. Details and caveats: [docs/codex-monitor-beta.md](docs/codex-monitor-beta.md).
 
 ### GitHub Copilot CLI
 
@@ -357,7 +355,9 @@ git pull
 ./install.sh --update
 ```
 
-DB and team configs are preserved. Only scripts and assets are updated.
+DB and team configs are preserved. Scripts and assets are updated; if an
+optional agmsg-owned Codex shim is already installed, it is refreshed in place.
+The installer may also refresh Codex sandbox writable roots.
 
 ## Uninstall
 
@@ -434,6 +434,7 @@ sandbox_mode = "workspace-write"
 writable_roots = [
   "~/.agents/skills/agmsg/db",
   "~/.agents/skills/agmsg/teams",
+  "~/.agents/skills/agmsg/run",
 ]
 ```
 
@@ -444,6 +445,7 @@ If you installed agmsg under a custom command name, adjust the path accordingly:
 writable_roots = [
   "~/.agents/skills/m/db",
   "~/.agents/skills/m/teams",
+  "~/.agents/skills/m/run",
 ]
 ```
 
@@ -456,9 +458,12 @@ writable_roots = [
 ]
 ```
 
-Codex only supports `mode turn` and `mode off`; it does not have Claude Code's
-Monitor tool. The sandbox allowlist is still required for writes performed by
-manual `$agmsg` commands and turn-end inbox checks.
+Codex supports `mode monitor`, `mode turn`, and `mode off`. The sandbox
+allowlist is required for writes performed by manual `$agmsg` commands, hook
+delivery, and monitor watcher runtime state.
+
+If you relocate the SQLite store with `AGMSG_STORAGE_PATH`, add that directory
+to Codex writable roots as well.
 
 Some Codex runtimes or automations may inject a managed permission profile for a
 single run. In that case, the run-specific writable roots must also include the

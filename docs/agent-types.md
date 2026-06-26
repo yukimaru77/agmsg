@@ -25,7 +25,7 @@ a manifest cannot execute code. Multi-value keys are whitespace-separated.
 | `spawnable` | — | `yes` if `spawn.sh` can launch this type |
 | `spawn` | — | a `.mjs` node-launcher (beside the manifest) `spawn.sh` runs via Node; also marks the type spawnable |
 | `hooks_file` | yes | project-relative delivery hooks file (e.g. `.codex/hooks.json`) |
-| `monitor` | — | `yes` if the type exposes a native Monitor tool; `spawn` skips the readiness wait when `no` |
+| `monitor` | — | `yes` if the type supports Monitor-backed real-time delivery; `spawn` skips the readiness wait when `no` |
 | `delivery_modes` | — | space-separated delivery modes the type's CLI accepts (e.g. `monitor turn off`); `delivery.sh`'s gate rejects anything else. Defaults to `monitor turn both off` when omitted |
 | `stop_output` | — | output protocol for the Stop/turn inbox check — `json` (codex, copilot) vs. plain text (default) |
 | `hook_windows_wrap` | — | `yes` if JSON hook entries also need a Windows-native `commandWindows` variant (codex) |
@@ -60,8 +60,10 @@ a manifest cannot execute code. Multi-value keys are whitespace-separated.
 `delivery.sh` defines the default behavior (JSON event-hooks) and a type's optional
 `scripts/drivers/types/<name>/_delivery.sh` plug overrides any of
 `agmsg_delivery_apply` / `on_enable` / `on_disable` / `status`. Rule-file types
-(gemini, antigravity, …) delegate to the shared `rulefile_apply`; codex's plug adds
-its bridge/shim lifecycle. No per-type `case` arms remain in `delivery.sh`.
+(gemini, antigravity, ...) delegate to the shared `rulefile_apply`; codex's plug
+stops stale legacy bridge processes on normal monitor enable and enables the
+legacy bridge lifecycle only when `AGMSG_CODEX_BRIDGE=1` opts into it. No
+per-type `case` arms remain in `delivery.sh`.
 
 ### Node-launcher types (external add-ons)
 
@@ -107,10 +109,11 @@ name=codex
 template=template.md
 cli=codex
 spawnable=yes
+model_arg=-m
 detect=CODEX_SANDBOX CODEX_THREAD_ID
 detect_proc=codex codex-*
 hooks_file=.codex/hooks.json
-monitor=no
+monitor=yes
 stop_output=json
 hook_windows_wrap=yes
 delivery_modes=monitor turn off

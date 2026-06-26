@@ -104,9 +104,9 @@ three signals, none needing a stable `session_id` (Codex doesn't expose one):
    agent process PID. A slash command runs as a child of that same process, so
    it walks the ppid chain to the agent PID and reads the marker back. Trust is
    gated on the PID still being a live agent process (recycling guard); stale
-   markers are GC'd at SessionStart/SessionEnd. **Claude Code monitor/both
-   only** — Codex rejects monitor mode (no Monitor tool), so it never installs
-   `session-start.sh` and writes no marker; Codex relies on signals 2–3.
+   markers are GC'd at SessionStart/SessionEnd. This signal is available for
+   Monitor-backed modes that install `session-start.sh` (including normal Codex
+   `monitor` mode). Turn/off-only sessions rely on signals 2-3.
 2. **Ancestor walk.** Failing a marker, the nearest ancestor of pwd that is a
    registered project for the type wins. Git-independent — covers nested
    subdirs and worktrees that live *under* the registered project, on cc and

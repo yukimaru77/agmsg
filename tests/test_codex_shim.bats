@@ -89,6 +89,7 @@ teardown() {
   export HOME="$TEST_PROJECT/home"
   mkdir -p "$HOME"
   bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+  bash "$TYPES/codex/codex-shim-install.sh" install >/dev/null
   [ -x "$HOME/.agents/bin/codex" ]
 
   PATH="$HOME/.agents/bin:$PATH" run bash -c 'cd "$TEST_PROJECT" && AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" codex resume'

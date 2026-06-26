@@ -143,7 +143,7 @@ Active driver per axis is recorded in `~/.agents/agmsg/config.json`:
 ```json
 {
   "storage": "sqlite",
-  "delivery": { "claude-code": "monitor", "codex": "turn" }
+  "delivery": { "claude-code": "monitor", "codex": "monitor" }
 }
 ```
 

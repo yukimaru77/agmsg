@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Launch Codex with agmsg's app-server bridge enabled.
+# Launch Codex with agmsg's legacy app-server bridge enabled.
 #
-# This is a beta convenience wrapper: it hides the shared app-server socket and
-# lets session-start.sh launch codex-bridge.js in the background once Codex
-# exposes CODEX_THREAD_ID to hooks.
+# This wrapper hides the shared app-server socket and lets session-start.sh
+# launch codex-bridge.js in the background once Codex exposes CODEX_THREAD_ID
+# to hooks. It is a legacy path for Codex builds without a native Monitor tool.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
@@ -74,19 +74,23 @@ esac
 
 PROJECT="$(cd "$PROJECT" && pwd)"
 
-# Fail-open: never let a broken bridge block codex. If the agmsg app-server can't
-# be brought up — e.g. a codex release changes the app-server interface and the
-# launch/port detection fails — hand off to a plain codex session (no --remote
-# bridge) instead of erroring out. The user keeps a working codex; only the
-# agmsg monitor delivery is skipped for this launch.
+# Fail-open: never let a broken legacy bridge block codex. If the agmsg
+# app-server can't be brought up — e.g. a codex release changes the app-server
+# interface and the launch/port detection fails — configure normal native
+# monitor mode and hand off to a plain codex session (no --remote bridge)
+# instead of erroring out.
 #
 # This is a LOUD fallback: it only runs on UNEXPECTED failure (the explicit
 # AGMSG_CODEX_SHIM_DISABLE=1 bypass is handled in codex-shim.sh and never reaches
-# here), so it must tell the user, on screen, that real-time delivery is off —
-# otherwise message receipt stops silently. The earlier echoes give the specific
-# reason + log path; this prints the one-line summary just before handoff.
+# here), so it must tell the user, on screen, that the bridge is not active. The
+# earlier echoes give the specific reason + log path; this prints the one-line
+# summary just before handoff.
 exec_plain_codex() {
-  echo "agmsg: Codex monitor bridge unavailable - launching plain Codex. Real-time agmsg delivery is OFF this session (messages still queue; check your inbox manually). Likely cause: the Codex app-server interface changed in 0.142+. Fix in progress." >&2
+  (
+    unset AGMSG_CODEX_BRIDGE AGMSG_CODEX_BRIDGE_APP_SERVER AGMSG_CODEX_BRIDGE_LAUNCHER
+    "$SCRIPT_DIR/../../../delivery.sh" set monitor codex "$PROJECT" >/dev/null 2>&1 || true
+  )
+  echo "agmsg: Codex legacy monitor bridge unavailable - launching plain Codex with native monitor hooks configured. If this Codex build lacks native Monitor support, messages still queue; check your inbox manually." >&2
   cd "$PROJECT" 2>/dev/null || true
   case "$CODEX_COMMAND" in
     codex)  exec "$REAL_CODEX" ${CODEX_ARGS[@]+"${CODEX_ARGS[@]}"} ;;
@@ -191,11 +195,11 @@ if ! port_alive "$PORT"; then
 fi
 SOCKET_URL="ws://127.0.0.1:$PORT"
 
-"$SCRIPT_DIR/../../../delivery.sh" set monitor codex "$PROJECT" >/dev/null
-
 export AGMSG_CODEX_BRIDGE=1
 export AGMSG_CODEX_BRIDGE_APP_SERVER="$SOCKET_URL"
 export AGMSG_CODEX_BRIDGE_LAUNCHER=1
+
+"$SCRIPT_DIR/../../../delivery.sh" set monitor codex "$PROJECT" >/dev/null
 
 launcher_cmd="${AGMSG_CODEX_BRIDGE_LAUNCHER_CMD:-$SCRIPT_DIR/codex-bridge-launcher.sh}"
 "$launcher_cmd" codex "$PROJECT" "$SOCKET_URL" "$$" >/dev/null 2>&1 &

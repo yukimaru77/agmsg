@@ -78,8 +78,9 @@ teardown() {
   grep -qx 'plain-codex <--foo>' "$CALL_LOG"
   # And it did NOT exec the bridged form.
   ! grep -q -- '--remote' "$CALL_LOG"
-  # The fallback is LOUD: the user is told real-time delivery is off.
-  [[ "$output" == *"Real-time agmsg delivery is OFF"* ]]
+  # The fallback is LOUD, but returns to native monitor hooks instead of the bridge.
+  [[ "$output" == *"legacy monitor bridge unavailable"* ]]
+  grep -q "session-start.sh" "$TEST_PROJECT/.codex/hooks.json"
 }
 
 @test "codex-monitor: fail-open preserves the resume command" {

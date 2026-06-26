@@ -306,11 +306,11 @@ teardown() {
   [[ "$output" != *"status="* ]]
 }
 
-@test "spawn: codex skips the readiness wait (no Monitor)" {
+@test "spawn: codex skips the actas-specific readiness wait for now" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
   run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipping readiness wait"* ]]
+  [[ "$output" == *"readiness wait is not enabled yet"* ]]
 }
 
 @test "spawn: grok-build skips the readiness wait even without --no-wait (monitor=no)" {
@@ -323,7 +323,7 @@ teardown() {
   run env -u TMUX bash "$SCRIPTS/spawn.sh" grok-build alice --project "$PROJ" \
     --terminal "true # {cmd}"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipping readiness wait"* ]]
+  [[ "$output" == *"readiness wait is not enabled yet"* ]]
   [[ "$output" != *"status=timeout"* ]]
   [[ "$output" != *"status=ready"* ]]
 }

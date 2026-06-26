@@ -7,10 +7,10 @@ set -euo pipefail
 #   delivery.sh set <mode> <type> <project_path>
 #   delivery.sh status [<type> <project_path>]
 #   delivery.sh stop
-#   delivery.sh restart [<project_path> <type>]
+#   delivery.sh restart [<type> <project_path>]
 #
 # Modes:
-#   monitor  — SessionStart hook → Claude Code Monitor tool → watch.sh stream
+#   monitor  — SessionStart hook → Monitor-capable agent runtime → watch.sh stream
 #   turn     — Stop hook → check-inbox.sh between turns (legacy)
 #   both     — monitor primary; turn as per-session safety net
 #   off      — no automatic delivery
@@ -19,11 +19,10 @@ set -euo pipefail
 # existing agmsg-owned SessionStart/Stop entries, then re-adds whichever
 # the new mode requires. Re-running with the same mode is a no-op.
 #
-# For in-session activation, several actions print a final
-# "AGMSG-DIRECTIVE:" line that a running Claude Code agent reads from the
-# command output and acts on (invoke Monitor, TaskStop the watcher). This
-# closes the gap where, without the directive, only the *next* session
-# would pick up the mode change.
+# For in-session activation, several actions print a final "AGMSG-DIRECTIVE:"
+# line that a running Monitor-capable agent reads from the command output and
+# acts on (invoke Monitor, TaskStop the watcher). This closes the gap where,
+# without the directive, only the *next* session would pick up the mode change.
 
 ACTION="${1:?Usage: delivery.sh set|status|restart ...}"
 shift
@@ -235,19 +234,14 @@ apply_settings() {
   agmsg_delivery_apply "$type" "$project" "$mode"
 }
 
-CODEX_MONITOR_DOC_URL="https://github.com/fujibee/agmsg/blob/main/docs/codex-monitor-beta.md"
-
 emit_monitor_directive() {
   local type="$1"
   local project="$2"
   local watch="$SKILL_DIR/scripts/watch.sh"
 
-  # Claude Code exports CLAUDE_CODE_SESSION_ID for every subprocess of the
-  # session. Bake it directly into the command so the agent never has to
-  # invent a value — that lets SessionEnd find and clean the matching
-  # pidfile reliably. Fall back to a generated id when the env var isn't
-  # present (older CC, non-CC runtimes).
-  local session_id="${CLAUDE_CODE_SESSION_ID:-}"
+  # Prefer a runtime-provided session id when one exists, then fall back to a
+  # generated id so non-Claude Monitor-capable agents can still start a watcher.
+  local session_id="${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-}}"
   if [ -z "$session_id" ]; then
     session_id="agmsg-$(compat_uuidgen | tr 'A-Z' 'a-z')"
   fi
@@ -368,8 +362,8 @@ do_set() {
     echo "Unknown mode: $MODE (use monitor|turn|both|off)" >&2; exit 1 ;;
   esac
   # Second: does THIS type accept the mode? A type declares the modes its CLI
-  # accepts via the delivery_modes= manifest key (e.g. codex omits 'both' — the
-  # bridge beta has no both-mode; rule-file types like opencode omit
+  # accepts via the delivery_modes= manifest key (e.g. codex omits 'both';
+  # rule-file types like opencode omit
   # 'monitor'/'both'). Reject anything not listed, before any file is touched.
   # Types without the key fall back to the full set so an unconfigured manifest
   # still works.
@@ -389,7 +383,7 @@ do_set() {
 
   case "$MODE" in
     monitor|both)
-      # Type-specific enable side effects (shim install, watcher directive, …)
+      # Type-specific enable side effects (watcher directive, bridge cleanup, ...)
       # live in the type's plug as agmsg_delivery_on_enable; default is none.
       agmsg_delivery_on_enable "$MODE" "$TYPE" "$PROJECT"
       ;;

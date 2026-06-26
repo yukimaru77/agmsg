@@ -60,10 +60,12 @@ AGENT_TYPE=""  # claude-code, codex, gemini, antigravity — passed via --agent-
 
 configure_codex_sandbox() {
   # --- Configure Codex sandbox (if Codex is installed) ---
-  # The Codex bridge (beta) writes pidfiles/sockets/request files under the
+  # Codex monitor and the legacy bridge write pidfiles/request files under the
   # skill's db/, teams/, run/ dirs; Codex's sandbox blocks those writes unless
-  # they are listed as writable_roots. See docs/codex-monitor-beta.md.
+  # they are listed as writable_roots.
   local code_config="$HOME/.codex/config.toml"
+  mkdir -p "$SKILL_DIR/db" "$SKILL_DIR/teams" "$SKILL_DIR/run"
+
   if [ ! -f "$code_config" ]; then
     return 0
   fi
@@ -291,7 +293,7 @@ if [ "$UPDATE_ONLY" = true ]; then
   cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
   chmod +x "$SKILL_DIR/scripts/"*.sh
   chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
-  # Refresh the Codex monitor shim (~/.agents/bin/codex) if it's ours. --update
+  # Refresh the optional Codex shim (~/.agents/bin/codex) if it's ours. --update
   # cp's the new codex-shim-install.sh but does not re-run it, so a shim from an
   # older install keeps its stale baked exec path after the
   # types/ -> scripts/drivers/types/ move. Re-running install regenerates it with
@@ -300,7 +302,7 @@ if [ "$UPDATE_ONLY" = true ]; then
   CODEX_SHIM="$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh"
   if [ -x "$CODEX_SHIM" ] && AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" status 2>/dev/null | grep -q '^installed:'; then
     AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
-      && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+      && echo "  + refreshed optional Codex shim (~/.agents/bin/codex)"
   fi
   install_windows_helpers
   INSTALLED_VERSION="$(agmsg_source_version)"
@@ -338,7 +340,7 @@ SKILL_DIR="$AGENTS_DIR/skills/$CMD_NAME"
 
 # --- Install skill ---
 echo "  Installing to ~/.agents/skills/$CMD_NAME/ ..."
-mkdir -p "$SKILL_DIR"/{scripts,types,db,agents}
+mkdir -p "$SKILL_DIR"/{scripts,types,db,teams,run,agents}
 
 # SKILL.md is generated from the agent-specific command template, resolved from
 # the type manifest (scripts/drivers/types/<type>/template.md). The shared SKILL.md uses the
@@ -361,12 +363,12 @@ cp "$SCRIPT_DIR/plugins/README.md" "$SKILL_DIR/plugins/README.md" 2>/dev/null ||
 cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
 chmod +x "$SKILL_DIR/scripts/"*.sh
 chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
-# Re-point an existing Codex monitor shim at the new path on a reinstall over an
+# Re-point an existing optional Codex shim at the new path on a reinstall over an
 # older layout (no-op when no agmsg shim is present). See the --update block above.
 CODEX_SHIM="$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh"
 if [ -x "$CODEX_SHIM" ] && AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" status 2>/dev/null | grep -q '^installed:'; then
   AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
-    && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+    && echo "  + refreshed optional Codex shim (~/.agents/bin/codex)"
 fi
 install_windows_helpers
 

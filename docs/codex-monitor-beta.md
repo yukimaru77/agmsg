@@ -1,40 +1,48 @@
-# Codex Monitor Beta
+# Codex Legacy Bridge
 
-Codex does not expose Claude Code's Monitor tool. agmsg's Codex monitor beta
-approximates the same experience by launching Codex through an app-server bridge.
+This page documents agmsg's optional Codex app-server bridge compatibility
+path. The filename is kept for existing links, but this is not the normal Codex
+monitor setup anymore.
 
-> ⚠️ **Experimental beta — read before enabling.** This changes how Codex starts.
-> Enabling monitor mode installs a shim at `~/.agents/bin/codex` and asks you to
-> put `~/.agents/bin` **first on your PATH**, so `codex` then resolves to the shim
-> instead of the real binary. In monitor-mode projects the shim re-routes
-> interactive launches through an app-server bridge; everywhere else it passes
-> straight through. **Only enable this if you understand PATH precedence and are
-> comfortable with the `codex` command being intercepted.** It also depends on
-> Codex app-server behavior and may break as Codex changes. Known rough edges:
-> enabling monitor takes effect only after you **restart Codex and send your
-> first message** — the SessionStart hook fires on the first turn, not the
-> moment Codex opens, so the bridge is absent until you interact once; an
-> already-running session stays unmonitored until you restart it (#151); the
-> bridge is not torn down when you close the TUI (orphans linger until reboot
-> or `mode off`/manual kill, see #149); and only one Codex identity per project
-> is supported (#150).
+Normal Codex `monitor` mode uses Codex's native Monitor integration. It does not
+install or require a `codex` command shim, and it does not require `~/.agents/bin`
+to come before the real Codex binary on `PATH`.
 
-## Quick Start
+## Normal Codex Monitor Mode
 
-Enable monitor mode in a project:
+Use the standard mode command:
 
 ```bash
 ~/.agents/skills/agmsg/scripts/delivery.sh set monitor codex "$PWD"
 ```
 
+or, from the skill command:
+
+```text
+$agmsg mode monitor
+```
+
 The command:
 
-1. Enables agmsg's Codex SessionStart/SessionEnd hooks for the project.
-2. Installs a Codex shim at `~/.agents/bin/codex` when it is safe to do so.
-3. Prints PATH instructions if `~/.agents/bin` is not before the real Codex
-   binary.
+1. Writes the Codex SessionStart/SessionEnd hooks for the current project.
+2. Stops stale legacy bridge processes for the project, if any exist.
+3. Emits an `AGMSG-DIRECTIVE` so the current Monitor-capable session can start
+   the watcher immediately.
 
-The Codex sandbox must allow writes to the installed skill's runtime state:
+Future Codex sessions start `watch.sh` from the SessionStart hook. If the
+current session does not pick up the new hook immediately, start a fresh Codex
+session.
+
+Codex currently supports `monitor`, `turn`, and `off`; it does not support
+`both`.
+
+## Sandbox Writes
+
+Codex may run shell commands in a workspace-write sandbox. agmsg stores the
+message DB, team registry, and watcher runtime state under the installed skill
+directory, which is usually outside the project workspace.
+
+Allow these writable roots when Codex sandboxing is enabled:
 
 ```text
 ~/.agents/skills/<cmd>/db
@@ -42,30 +50,24 @@ The Codex sandbox must allow writes to the installed skill's runtime state:
 ~/.agents/skills/<cmd>/run
 ```
 
-`install.sh` and `install.sh --update` add these writable roots to
+`install.sh` and `install.sh --update` add those roots to
 `~/.codex/config.toml` when that file exists.
 
-If the command says `~/.agents/bin` is not on PATH, add this to your shell
-profile:
+## When To Use The Legacy Bridge
 
-```bash
-export PATH="$HOME/.agents/bin:$PATH"
-```
+Use the legacy bridge only when you intentionally need the older app-server
+compatibility path, for example:
 
-Restart the shell, then launch Codex normally:
+- you are running a Codex build or wrapper without usable native Monitor
+  support
+- you are debugging the historical app-server bridge
+- you need to reproduce behavior from an older agmsg installation
 
-```bash
-codex
-```
+Do not use the bridge as the standard setup for `delivery.sh set monitor codex`.
 
-In monitor-mode projects, the shim routes interactive Codex launches through
-the bridge. Outside monitor-mode projects, it passes through to the real Codex.
+## Explicit Wrapper
 
-## Fallback
-
-If `~/.agents/bin/codex` already exists and is not the agmsg shim, agmsg leaves
-it untouched. You can either move that command aside and run `mode monitor`
-again, or launch monitor sessions explicitly:
+Launch a bridge-backed Codex session explicitly:
 
 ```bash
 ~/.agents/skills/agmsg/scripts/drivers/types/codex/codex-monitor.sh
@@ -77,17 +79,41 @@ For custom command names, replace `agmsg` with the installed skill name:
 ~/.agents/skills/<cmd>/scripts/drivers/types/codex/codex-monitor.sh
 ```
 
-## What The Shim Does
+The wrapper sets `AGMSG_CODEX_BRIDGE=1`, enables Codex `monitor` mode for the
+project, starts or reuses an agmsg-managed Codex app-server, starts the bridge
+launcher, then execs Codex with `--remote`.
 
-The shim only wraps interactive Codex TUI launches:
+If the app-server path is unavailable, the wrapper fails open: it configures the
+normal native Monitor hooks, launches plain Codex, and prints that the legacy
+bridge is unavailable. If that Codex build also lacks native Monitor support,
+messages still queue and can be read manually with `$agmsg`.
+
+## Optional Shim
+
+The shim is only for users who explicitly want interactive `codex` launches in
+monitor-mode projects to route through `codex-monitor.sh`.
+
+Install it deliberately:
 
 ```bash
-codex
-codex resume
-codex "fix this bug"
+~/.agents/skills/<cmd>/scripts/drivers/types/codex/codex-shim-install.sh install
 ```
 
-Noninteractive subcommands pass through to the real Codex binary:
+Then put `~/.agents/bin` before the real Codex binary on `PATH`.
+
+Remove it:
+
+```bash
+~/.agents/skills/<cmd>/scripts/drivers/types/codex/codex-shim-install.sh remove
+```
+
+Bypass it for one launch:
+
+```bash
+AGMSG_CODEX_SHIM_DISABLE=1 codex
+```
+
+The shim passes noninteractive subcommands through to the real Codex binary:
 
 ```bash
 codex exec ...
@@ -96,116 +122,74 @@ codex login
 codex logout
 ```
 
-The shim also passes through when the current project is not in Codex monitor
-mode.
+It also passes through when the current project is not in Codex `monitor` mode.
 
 ## Bridge Mechanics
 
-`codex-monitor.sh` starts (or reuses) an agmsg-managed Codex app-server socket
-under `~/.agents/skills/<cmd>/run/`, starts the out-of-sandbox bridge launcher,
-and then connects the Codex TUI to that socket with `--remote`.
+The legacy bridge path uses the Codex app-server API instead of the native
+Monitor watcher path:
 
-Codex fires the SessionStart hook on the session's **first turn** (the first
-message you send), not the moment the TUI opens — so the bridge does not exist
-until you interact once after a restart.
+1. `codex-monitor.sh` starts or reuses an app-server on a loopback `ws://` port.
+2. It exports `AGMSG_CODEX_BRIDGE=1`,
+   `AGMSG_CODEX_BRIDGE_APP_SERVER=<url>`, and
+   `AGMSG_CODEX_BRIDGE_LAUNCHER=1`.
+3. It runs `delivery.sh set monitor codex "$PROJECT"` in bridge mode.
+4. `codex-bridge-launcher.sh` waits for a SessionStart handoff request.
+5. The Codex SessionStart plug resolves the current thread and writes that
+   request under `run/`.
+6. `codex-bridge.js` connects to the app-server, resumes the thread, polls for
+   unread agmsg rows with `drivers/types/codex/watch-once.sh`, and starts a
+   Codex turn when a message arrives.
 
-The SessionStart hook is designed to **not** start the bridge directly — a
-hook-launched process was observed to run inside the Codex sandbox and fail to
-connect to the unix socket (EPERM). Instead:
-
-> Note: this EPERM-avoidance design (the launcher + request-file rendezvous
-> below) is under review — in practice the hook has been seen to launch a
-> detached bridge directly and connect fine, suggesting the launcher layer may
-> be redundant. See #153.
-
-1. `session-start.sh` (the hook) resolves the thread id — `CODEX_THREAD_ID` when
-   set, otherwise the newest Codex rollout whose `session_meta` cwd matches the
-   project (fresh / `codex exec` sessions never export `CODEX_THREAD_ID`) — and
-   writes a **request file** under `run/` (it never touches the socket).
-2. `codex-bridge-launcher.sh`, started by `codex-monitor.sh` **outside** the
-   sandbox, reads the request file and starts `codex-bridge.js`.
-3. The bridge connects to the same app-server over **WebSocket-over-UDS**,
-   resumes the thread, and arms `watch-once.sh` via the app-server `process/spawn`
-   API (which polls the agmsg DB for unread rows, `read_at IS NULL`).
-4. On an unread message it inlines the text into a `turn/start` on that thread —
-   surfacing it in the live Codex TUI — then re-arms after the turn ends.
-
-Turns are serialized (one per thread): a message that arrives while a turn is
-running stays unread and is delivered after the turn completes. The turn ends
-via `turn/completed`, a `thread/status` idle, or a watchdog (the real app-server
-does not reliably send `turn/completed`); only then is the next `watch-once`
-armed. If a turn does not consume the unread message, the same `max_id` reappears
-and the bridge stops instead of looping.
+Turns are serialized per thread. A message that arrives while a turn is running
+stays unread and is delivered after the turn completes.
 
 ```mermaid
 flowchart TD
-  user["User runs codex"] --> shim["~/.agents/bin/codex shim"]
-  shim --> mode{"Project delivery mode?"}
-  mode -- "not monitor / codex exec / --version" --> real["real codex"]
-  mode -- "monitor (interactive)" --> monitor["codex-monitor.sh"]
-
-  monitor --> server{"app-server socket exists?"}
-  server -- "no" --> startServer["codex app-server --listen unix://..."]
-  server -- "yes" --> reuseServer["reuse socket"]
-  monitor --> launcher["codex-bridge-launcher.sh (outside sandbox)"]
-  startServer --> remote["codex --remote unix://..."]
-  reuseServer --> remote
-
-  remote --> hook["SessionStart hook → session-start.sh (in sandbox)"]
-  hook --> thread["resolve thread: CODEX_THREAD_ID || newest matching rollout"]
-  thread --> request["write request file under run/ (no socket — EPERM)"]
-  request -.-> launcher
-  launcher --> bridge["codex-bridge.js → app-server (WebSocket-over-UDS)"]
-  bridge --> watch["arm watch-once.sh (process/spawn)"]
-  watch --> db[("agmsg SQLite DB (read_at IS NULL)")]
+  user["User explicitly launches codex-monitor.sh"] --> monitor["codex-monitor.sh"]
+  monitor --> server{"App-server available?"}
+  server -- "no" --> plain["plain Codex; native hooks configured"]
+  server -- "yes" --> remote["Codex TUI with --remote"]
+  monitor --> launcher["codex-bridge-launcher.sh"]
+  remote --> hook["SessionStart hook"]
+  hook --> request["bridge request under run/"]
+  request --> launcher
+  launcher --> bridge["codex-bridge.js"]
+  bridge --> gate["drivers/types/codex/watch-once.sh"]
+  gate --> db[("agmsg SQLite DB")]
   db --> unread{"Unread message?"}
-  unread -- "no (timeout)" --> watch
-  unread -- "yes" --> inbox["inline unread inbox text"]
-  inbox --> turn["turn/start on the thread"]
-  turn --> tui["Current Codex TUI thread"]
-  tui --> ended["turn ends: completed / idle / watchdog"]
-  ended --> watch
+  unread -- "no" --> gate
+  unread -- "yes" --> turn["turn/start on current Codex thread"]
+  turn --> remote
 ```
+
+Known limits of the legacy path:
+
+- it depends on Codex app-server behavior that may change
+- only one Codex identity per project is supported by the bridge path
+- stale bridge or app-server processes may need `mode off` or manual cleanup
 
 ## Worker Guardrails
 
-> ⚠️ **Never poll agmsg by launching a full Codex/Claude session on a short
-> interval.** Use a shell-only gate first and start the heavy agent only when
-> there is actually something to handle.
+Never poll agmsg by launching a full Codex or Claude session on a short
+interval. Use a shell-only gate first and start a heavyweight agent only when
+there is actually something to handle.
 
-### Case study: empty-poll OOM (#163)
+For Codex bridge-style workers, the cheap gate is:
 
-A user wired an autonomous worker as a `cron` job (`FREQ=MINUTELY;INTERVAL=3`)
-that launched a **full Codex session every 3 minutes** to check the agmsg inbox,
-git state, GitHub issues, and so on. The approval/away-window had already
-expired, so almost every tick returned `No new messages.` — yet each tick still
-spun up a complete Codex session with a long prompt and project context.
+```text
+~/.agents/skills/<cmd>/scripts/drivers/types/codex/watch-once.sh
+```
 
-About 60 Codex sessions were created in under three hours. Codex Desktop keeps a
-transcript / trace / tool-output / local log DB per session, so the no-op runs
-accumulated: `~/.codex/logs_2.sqlite` grew to ~2.2 GB (plus ~1.1 GB WAL), Codex
-memory climbed to ~158 GB, and macOS hit a Low-Memory / jetsam state that forced
-a hard restart.
-
-This is **not** an agmsg transport or SQLite bug. The root cause is the worker
-shape: a short-interval scheduler that runs a heavyweight agent as the poller,
-with no cheap no-op path, so empty inboxes still pay the full cost — and Codex
-Desktop's per-session UI/log accumulation amplifies it.
-
-### Gate with `watch-once.sh`, launch the agent only on a hit
-
-agmsg already ships the cheap gate this needs. `watch-once.sh` is a shell-only,
-one-shot inbox oracle — no agent, no Codex turn. It is the same primitive the
-Codex monitor bridge uses (see [Bridge Mechanics](#bridge-mechanics)) to avoid
-starting a turn on an empty inbox.
+Exit codes:
 
 ```text
 exit 0  unread inbound exists   (prints: status=pending count=<n> max_id=<id>)
-exit 2  nothing pending          (prints: status=timeout)
-exit 1  configuration / runtime error
+exit 2  nothing pending         (prints: status=timeout)
+exit 1  configuration or runtime error
 ```
 
-Two-stage worker — the shell gate decides whether the expensive agent runs:
+Example:
 
 ```bash
 #!/usr/bin/env bash
@@ -213,52 +197,19 @@ set -euo pipefail
 SKILL=~/.agents/skills/agmsg/scripts
 PROJECT="/path/to/project"
 
-# 1. Cheap shell-only check. --timeout 0 makes it a single poll, then exit.
-#    --team/--name scope the gate to one identity (matches the single-flight
-#    key below, and disambiguates when the same agent name exists in two teams).
-if "$SKILL/watch-once.sh" "$PROJECT" codex --team myteam --name myagent --timeout 0; then
-  # 2. Unread exists — only now pay for a full Codex/Claude session.
+if "$SKILL/drivers/types/codex/watch-once.sh" "$PROJECT" codex \
+  --team myteam --name myagent --timeout 0; then
   codex exec "Handle the new agmsg messages for this project."
 fi
-# exit 2 (nothing pending) falls through and the worker ends cheaply.
 ```
 
-### Defense in depth
-
-For an unattended worker, layer these on top of the gate:
-
-- **Single-flight lock per `(team, agent)`** so overlapping ticks don't stack
-  concurrent agents:
-  ```bash
-  exec 9>"/tmp/agmsg-worker.myteam.myagent.lock"
-  flock -n 9 || exit 0   # another tick is still running; skip this one
-  ```
-- **Approval / away-window expiry check before launch.** If the worker is only
-  authorized for a window, verify it hasn't expired *before* starting the agent,
-  and disable the worker (or exit) once it has — don't leave it `ACTIVE` past its
-  window.
-- **Exponential backoff on repeated no-ops.** After N consecutive empty gates,
-  widen the interval so an idle worker stops hammering.
-- **Max-run cap.** Bound total runs (e.g. `COUNT` for `cron`) and prefer
-  intervals measured in minutes, not seconds.
-- **Codex Desktop note.** Codex Desktop retains transcript / tool-output / trace
-  per session and a local log DB (`~/.codex/logs_*.sqlite`). Even short no-op
-  sessions accumulate there, so a high-frequency spawner is far heavier than the
-  per-run wall-clock suggests. The shell gate above avoids creating those
-  sessions at all on empty ticks.
-
-### Emergency stop (runaway worker)
-
-1. Make the worker inactive / unschedule the `cron` job so it stops spawning.
-2. Back off delivery: `delivery.sh set turn codex "$PROJECT"` (or `off`) to stop
-   monitor-driven launches.
-3. Kill stale monitors / spawned sessions and any orphaned bridge
-   (`mode off` tears the bridge down; see #149).
-4. Inspect Codex Desktop log-DB bloat: `~/.codex/logs_*.sqlite` and its WAL.
+For unattended workers, add a single-flight lock per `(team, agent)`, check any
+approval or away-window expiry before launching an agent, back off repeated
+empty polls, and cap total runs.
 
 ## Related Details
 
 - [Delivery modes](../README.md#delivery-modes)
 - [Codex bridge implementation](../scripts/drivers/types/codex/codex-bridge.js)
-- [Monitor launcher](../scripts/drivers/types/codex/codex-monitor.sh)
-- [Codex shim](../scripts/drivers/types/codex/codex-shim.sh)
+- [Legacy bridge launcher](../scripts/drivers/types/codex/codex-monitor.sh)
+- [Optional Codex shim](../scripts/drivers/types/codex/codex-shim.sh)

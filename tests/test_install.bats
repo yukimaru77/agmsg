@@ -529,9 +529,9 @@ PY
   grep -q "whoami.sh \"\$(pwd)\" hermes" "$FAKE_HOME/.hermes/skills/agmsg/SKILL.md"
 }
 
-@test "install: --update re-points an existing Codex monitor shim to the new path" {
+@test "install: --update re-points an existing optional Codex shim to the new path" {
   HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg
-  # Install the shim the way enabling Codex monitor mode would.
+  # Install the optional legacy bridge shim explicitly.
   HOME="$FAKE_HOME" bash "$SK/scripts/drivers/types/codex/codex-shim-install.sh" install >/dev/null
   local shim="$FAKE_HOME/.agents/bin/codex"
   [ -f "$shim" ]

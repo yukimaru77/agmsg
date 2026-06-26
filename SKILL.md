@@ -84,19 +84,17 @@ Do NOT manually edit config files. Always use join.sh.
 ~/.agents/skills/agmsg/scripts/reset.sh "$(pwd)" <type> [agent_id] [session_id]
 
 # Set delivery mode for this project.
-#   monitor — real-time push via SessionStart + Monitor tool (claude-code only)
+#   monitor — real-time push via SessionStart + Monitor tool
 #   turn    — Stop-hook pulls at the end of each assistant turn
 #   both    — monitor primary, turn as fallback
 #   off     — no automatic delivery
 ~/.agents/skills/agmsg/scripts/delivery.sh set <mode> <type> "$(pwd)"
 ~/.agents/skills/agmsg/scripts/delivery.sh status <type> "$(pwd)"
 
-# Multiple roles per project (one CC = one active role).
-# Claude Code: `actas` claims an exclusivity lock for <name> across sessions
-# and restarts the Monitor filtered to <name> only; peer watchers stop
-# subscribing to <name> while this session holds the lock. `drop` releases.
-# Codex: actas is send-side only (no stable session_id during slash commands
-# → no peer-visible lock). See README "Codex caveat" for details.
+# Multiple roles per project (one session = one active role).
+# `actas` claims an exclusivity lock for <name> across sessions and restarts
+# the Monitor filtered to <name> only; peer watchers stop subscribing to <name>
+# while this session holds the lock. `drop` releases.
 ~/.agents/skills/agmsg/scripts/actas-claim.sh "$(pwd)" <type> <name> "$session_id"
 ~/.agents/skills/agmsg/scripts/reset.sh "$(pwd)" <type> <name> "$session_id"
 
@@ -122,8 +120,7 @@ Do NOT manually edit config files. Always use join.sh.
 #                        (no Automation/TCC permission prompt).
 #   --no-wait            don't block on readiness (fire-and-forget)
 #   --ready-timeout N    seconds to wait for readiness (default 90; on timeout
-#                        prints status=timeout and exits 3). Codex skips the
-#                        wait (it has no Monitor).
+#                        prints status=timeout and exits 3).
 ~/.agents/skills/agmsg/scripts/spawn.sh <claude-code|codex> <name> [options]
 
 # Tear down a spawned member — the inverse of spawn.
@@ -135,8 +132,7 @@ Do NOT manually edit config files. Always use join.sh.
 # dedicated to <name> acts on it — the despawning session is never torn down.
 # --force: skip the message and tear the member down from the placement recorded
 # at spawn time (kill its tmux pane/window, drop its registration) — for a dead
-# watcher or a codex member (no Monitor). A hand-started member with no placement
-# record can't be --forced.
+# watcher. A hand-started member with no placement record can't be --forced.
 #   --force              tear down from the recorded placement, no message
 #   --timeout N          seconds to wait for graceful teardown (default 30)
 ~/.agents/skills/agmsg/scripts/despawn.sh <team> <from> <name> [--force] [--timeout N]

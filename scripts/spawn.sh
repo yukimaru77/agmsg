@@ -44,8 +44,8 @@ set -euo pipefail
 #
 # Readiness: by default spawn blocks until the new agent's watcher attaches and
 # is receiving (it prints `status=ready ...`), so a leader can safely send work
-# right after spawn returns without racing the agent's cold start. Codex has no
-# Monitor, so the wait is skipped for codex.
+# right after spawn returns without racing the agent's cold start. For runtimes
+# whose manifest sets `monitor=no`, the wait is skipped.
 #
 # Scope note: spawnable types are those whose manifest declares `spawnable=yes`;
 # macOS is the primary target, Linux and
@@ -445,10 +445,8 @@ place_and_launch() {
 # cold-start window (before the watcher attaches) and lose it.
 #
 # Types with `monitor=no` do not produce a spawn-awaitable readiness sentinel, so
-# skip the wait. That covers types with no Monitor at all (codex) AND types whose
-# watcher attaches via the agent's own launch rather than a spawn-time sentinel
-# (grok-build, whose monitor mode is real but not awaitable here) — receive there
-# is poll-based or agent-launched anyway.
+# skip the wait. That covers types whose receive path is poll-based or whose
+# watcher attaches via the agent's own launch rather than a spawn-time sentinel.
 READY_PATH="$(agmsg_ready_path "$TEAM" "$NAME")"
 if [ "$(agmsg_type_get "$AGENT_TYPE" monitor)" = "no" ] && [ "$WAIT_READY" = "1" ]; then
   WAIT_READY=0

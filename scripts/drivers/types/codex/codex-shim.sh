@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Optional Codex entrypoint shim for agmsg monitor mode.
+# Optional Codex entrypoint shim for agmsg's legacy app-server bridge.
 #
 # Install this as ~/.agents/bin/codex before the real Codex binary on PATH.
-# In projects whose Codex delivery mode is `monitor`, interactive Codex TUI
-# launches are routed through codex-monitor.sh. Everything else is passed
-# through to the real Codex command unchanged.
+# When AGMSG_CODEX_BRIDGE=1 is set and the project delivery mode is `monitor`,
+# interactive Codex TUI launches are routed through codex-monitor.sh. Everything
+# else is passed through to the real Codex command unchanged.
 
 if [ "${AGMSG_CODEX_SHIM_WRAPPER:-}" = "1" ] && [ -n "${AGMSG_CODEX_SHIM_SCRIPT_DIR:-}" ]; then
   SCRIPT_DIR="$AGMSG_CODEX_SHIM_SCRIPT_DIR"
@@ -112,7 +112,11 @@ is_monitor_project() {
 
 real_codex="$(resolve_real_codex)"
 
-if [ "${AGMSG_CODEX_SHIM_DISABLE:-}" = "1" ] || [ "${AGMSG_CODEX_BRIDGE:-}" = "1" ]; then
+if [ "${AGMSG_CODEX_SHIM_DISABLE:-}" = "1" ]; then
+  exec "$real_codex" "$@"
+fi
+
+if [ "${AGMSG_CODEX_BRIDGE:-}" != "1" ]; then
   exec "$real_codex" "$@"
 fi
 

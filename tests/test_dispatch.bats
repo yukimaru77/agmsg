@@ -54,7 +54,7 @@ teardown() {
   [[ "$output" =~ "$message" ]]
 }
 
-@test "dispatch: codex mode off and turn delegate to delivery" {
+@test "dispatch: codex mode off, turn, monitor, and both delegate to delivery" {
   run bash "$SCRIPTS/windows/dispatch.sh" --type codex --project "$PROJECT_ALICE" -- mode off
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Delivery mode set to 'off'" ]]
@@ -62,4 +62,12 @@ teardown() {
   run bash "$SCRIPTS/windows/dispatch.sh" --type codex --project "$PROJECT_ALICE" -- mode turn
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Delivery mode set to 'turn'" ]]
+
+  run bash "$SCRIPTS/windows/dispatch.sh" --type codex --project "$PROJECT_ALICE" -- mode monitor
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Delivery mode set to 'monitor'" ]]
+
+  run bash "$SCRIPTS/windows/dispatch.sh" --type codex --project "$PROJECT_ALICE" -- mode both
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Delivery mode set to 'both'" ]]
 }

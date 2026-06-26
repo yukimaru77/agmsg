@@ -36,18 +36,18 @@ teardown() {
 }
 
 @test "codex shim: monitor project routes resume through codex-monitor" {
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+  AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
 
-  run bash -c 'cd "$TEST_PROJECT" && AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" bash "$TYPES/codex/codex-shim.sh" resume --last'
+  run bash -c 'cd "$TEST_PROJECT" && AGMSG_CODEX_BRIDGE=1 AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" bash "$TYPES/codex/codex-shim.sh" resume --last'
 
   [ "$status" -eq 0 ]
   grep -q "monitor real=$FAKE_CODEX <--project> <$TEST_PROJECT> <--codex-command> <resume> <--> <--last>" "$CALL_LOG"
 }
 
 @test "codex shim: monitor project routes prompt launches through top-level codex" {
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+  AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
 
-  run bash -c 'cd "$TEST_PROJECT" && AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" bash "$TYPES/codex/codex-shim.sh" "fix this"'
+  run bash -c 'cd "$TEST_PROJECT" && AGMSG_CODEX_BRIDGE=1 AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" bash "$TYPES/codex/codex-shim.sh" "fix this"'
 
   [ "$status" -eq 0 ]
   grep -q "monitor real=$FAKE_CODEX <--project> <$TEST_PROJECT> <--codex-command> <codex> <--> <fix this>" "$CALL_LOG"
@@ -56,7 +56,7 @@ teardown() {
 @test "codex shim: non-monitor project passes through to real codex" {
   bash "$SCRIPTS/delivery.sh" set turn codex "$TEST_PROJECT" >/dev/null
 
-  AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" \
+  AGMSG_CODEX_BRIDGE=1 AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" \
     run bash "$TYPES/codex/codex-shim.sh" resume --last
 
   [ "$status" -eq 0 ]
@@ -65,9 +65,9 @@ teardown() {
 }
 
 @test "codex shim: noninteractive codex subcommands pass through even in monitor mode" {
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+  AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
 
-  AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" \
+  AGMSG_CODEX_BRIDGE=1 AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" \
     run bash "$TYPES/codex/codex-shim.sh" exec echo hi
 
   [ "$status" -eq 0 ]
@@ -76,9 +76,9 @@ teardown() {
 }
 
 @test "codex shim: --cd project is used for monitor detection" {
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+  AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
 
-  AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" \
+  AGMSG_CODEX_BRIDGE=1 AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" \
     run bash "$TYPES/codex/codex-shim.sh" --cd "$TEST_PROJECT" resume
 
   [ "$status" -eq 0 ]
@@ -88,11 +88,21 @@ teardown() {
 @test "codex shim install: installed bin wrapper still finds skill scripts" {
   export HOME="$TEST_PROJECT/home"
   mkdir -p "$HOME"
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+  AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
   [ -x "$HOME/.agents/bin/codex" ]
 
-  PATH="$HOME/.agents/bin:$PATH" run bash -c 'cd "$TEST_PROJECT" && AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" codex resume'
+  PATH="$HOME/.agents/bin:$PATH" run bash -c 'cd "$TEST_PROJECT" && AGMSG_CODEX_BRIDGE=1 AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" codex resume'
 
   [ "$status" -eq 0 ]
   grep -q "monitor real=$FAKE_CODEX <--project> <$TEST_PROJECT> <--codex-command> <resume> <-->" "$CALL_LOG"
+}
+
+@test "codex shim: monitor project passes through without explicit bridge opt-in" {
+  AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+
+  run bash -c 'cd "$TEST_PROJECT" && AGMSG_REAL_CODEX="$FAKE_CODEX" AGMSG_CODEX_MONITOR_CMD="$FAKE_MONITOR" bash "$TYPES/codex/codex-shim.sh" resume --last'
+
+  [ "$status" -eq 0 ]
+  grep -q "real-codex <resume> <--last>" "$CALL_LOG"
+  ! grep -q "^monitor" "$CALL_LOG"
 }

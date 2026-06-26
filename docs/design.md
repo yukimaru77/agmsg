@@ -97,16 +97,15 @@ Slash commands pass `"$(pwd)"` as the project key. When the user `cd`s into a
 subdirectory or git worktree of the project the session actually lives in, that
 pwd no longer matches the registered project — lookups miss and a phantom record
 gets minted for the subdir. `lib/resolve-project.sh` recovers the real root with
-three signals, none needing a stable `session_id` (Codex doesn't expose one):
+three signals, none depending on a slash-command-specific `session_id`:
 
 1. **Per-process marker.** At SessionStart, `proj.<agent_pid>.project` records
    the authoritative project (the hook's baked-in `$2`), keyed by the enclosing
    agent process PID. A slash command runs as a child of that same process, so
    it walks the ppid chain to the agent PID and reads the marker back. Trust is
    gated on the PID still being a live agent process (recycling guard); stale
-   markers are GC'd at SessionStart/SessionEnd. **Claude Code monitor/both
-   only** — Codex rejects monitor mode (no Monitor tool), so it never installs
-   `session-start.sh` and writes no marker; Codex relies on signals 2–3.
+   markers are GC'd at SessionStart/SessionEnd. Monitor-capable runtimes such
+   as Claude Code and Codex write this marker in `monitor`/`both` mode.
 2. **Ancestor walk.** Failing a marker, the nearest ancestor of pwd that is a
    registered project for the type wins. Git-independent — covers nested
    subdirs and worktrees that live *under* the registered project, on cc and

@@ -236,8 +236,8 @@ agmsg_resolve_project() {
   if [ "${AGMSG_RESOLVE_PROJECT:-1}" = "0" ]; then
     printf '%s' "$pwd_path"; return 0
   fi
-  # 1) Per-process SessionStart marker (precise). Written only by session-start
-  #    (cc monitor/both); codex never installs it, so codex relies on 2)/3).
+  # 1) Per-process SessionStart marker (precise). Written by session-start for
+  #    monitor-capable runtimes.
   if pid="$(agmsg_agent_pid "$type")" && [ -n "$pid" ]; then
     if marker="$(agmsg_read_project_marker "$pid" "$type")" && [ -n "$marker" ]; then
       printf '%s' "$marker"; return 0

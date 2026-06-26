@@ -50,11 +50,10 @@ PAIRS=$("$SCRIPT_DIR/identities.sh" "$PROJECT" "$TYPE" 2>/dev/null || true)
 [ -n "$PAIRS" ] || exit 0
 
 # Type-specific SessionStart behaviour (Template Method). A type may ship
-# scripts/drivers/types/<type>/_session-start.sh defining agmsg_session_start to override the
-# default no-op — codex uses it to hand the session off to the bridge. The plug
-# is sourced in this script's context so it sees PROJECT / RUN_DIR / SKILL_DIR /
-# PAIRS and the helpers sourced above; it may exit 0 (codex does, having no
-# Monitor tool) to skip the Monitor-directive path below.
+# scripts/drivers/types/<type>/_session-start.sh defining agmsg_session_start to
+# replace the default no-op — codex uses it only for the explicit legacy bridge
+# path. The plug is sourced in this script's context so it sees PROJECT /
+# RUN_DIR / SKILL_DIR / PAIRS and the helpers sourced above.
 agmsg_session_start_default() { :; }
 
 _tdir="$(agmsg_type_dir "$TYPE" 2>/dev/null || true)"
@@ -81,6 +80,7 @@ if [ -n "$INPUT" ]; then
     | head -1)
 fi
 [ -z "$SESSION_ID" ] && SESSION_ID="${GROK_SESSION_ID:-}"
+[ -z "$SESSION_ID" ] && SESSION_ID="${CODEX_THREAD_ID:-}"
 # Fallback so the instruction is still actionable even outside a hook flow.
 [ -z "$SESSION_ID" ] && SESSION_ID="unknown-$$"
 

@@ -1,12 +1,13 @@
-# Codex Monitor Beta
+# Codex Legacy App-Server Bridge
 
-Codex does not expose Claude Code's Monitor tool. agmsg's Codex monitor beta
-approximates the same experience by launching Codex through an app-server bridge.
+Codex now uses its native Monitor path for `mode monitor`, matching Claude Code.
+This page documents the older app-server bridge/shim compatibility path. Use it
+only when you explicitly need the legacy bridge behavior.
 
-> ⚠️ **Experimental beta — read before enabling.** This changes how Codex starts.
-> Enabling monitor mode installs a shim at `~/.agents/bin/codex` and asks you to
+> ⚠️ **Legacy opt-in path — read before enabling.** This changes how Codex starts.
+> Enabling the bridge installs a shim at `~/.agents/bin/codex` and asks you to
 > put `~/.agents/bin` **first on your PATH**, so `codex` then resolves to the shim
-> instead of the real binary. In monitor-mode projects the shim re-routes
+> instead of the real binary. In bridge-mode projects the shim re-routes
 > interactive launches through an app-server bridge; everywhere else it passes
 > straight through. **Only enable this if you understand PATH precedence and are
 > comfortable with the `codex` command being intercepted.** It also depends on
@@ -21,10 +22,10 @@ approximates the same experience by launching Codex through an app-server bridge
 
 ## Quick Start
 
-Enable monitor mode in a project:
+Enable the legacy bridge in a project:
 
 ```bash
-~/.agents/skills/agmsg/scripts/delivery.sh set monitor codex "$PWD"
+AGMSG_CODEX_BRIDGE=1 ~/.agents/skills/agmsg/scripts/delivery.sh set monitor codex "$PWD"
 ```
 
 The command:
@@ -52,20 +53,22 @@ profile:
 export PATH="$HOME/.agents/bin:$PATH"
 ```
 
-Restart the shell, then launch Codex normally:
+Restart the shell, then launch Codex with the bridge opt-in:
 
 ```bash
-codex
+AGMSG_CODEX_BRIDGE=1 codex
 ```
 
-In monitor-mode projects, the shim routes interactive Codex launches through
-the bridge. Outside monitor-mode projects, it passes through to the real Codex.
+With `AGMSG_CODEX_BRIDGE=1` set, the shim routes interactive Codex launches in
+monitor-mode projects through the bridge. Without that env var, or outside
+monitor-mode projects, it passes through to the real Codex.
 
 ## Fallback
 
 If `~/.agents/bin/codex` already exists and is not the agmsg shim, agmsg leaves
-it untouched. You can either move that command aside and run `mode monitor`
-again, or launch monitor sessions explicitly:
+it untouched. You can either move that command aside and re-run the
+`AGMSG_CODEX_BRIDGE=1 ... delivery.sh set monitor ...` command, or launch bridge
+sessions explicitly:
 
 ```bash
 ~/.agents/skills/agmsg/scripts/drivers/types/codex/codex-monitor.sh
@@ -196,7 +199,7 @@ Desktop's per-session UI/log accumulation amplifies it.
 
 agmsg already ships the cheap gate this needs. `watch-once.sh` is a shell-only,
 one-shot inbox oracle — no agent, no Codex turn. It is the same primitive the
-Codex monitor bridge uses (see [Bridge Mechanics](#bridge-mechanics)) to avoid
+The legacy Codex bridge uses (see [Bridge Mechanics](#bridge-mechanics)) to avoid
 starting a turn on an empty inbox.
 
 ```text

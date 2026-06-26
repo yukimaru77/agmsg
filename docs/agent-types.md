@@ -60,8 +60,9 @@ a manifest cannot execute code. Multi-value keys are whitespace-separated.
 `delivery.sh` defines the default behavior (JSON event-hooks) and a type's optional
 `scripts/drivers/types/<name>/_delivery.sh` plug overrides any of
 `agmsg_delivery_apply` / `on_enable` / `on_disable` / `status`. Rule-file types
-(gemini, antigravity, …) delegate to the shared `rulefile_apply`; codex's plug adds
-its bridge/shim lifecycle. No per-type `case` arms remain in `delivery.sh`.
+(gemini, antigravity, …) delegate to the shared `rulefile_apply`; codex's plug
+uses the native Monitor directive by default and keeps its old bridge/shim path
+behind explicit opt-in. No per-type `case` arms remain in `delivery.sh`.
 
 ### Node-launcher types (external add-ons)
 
@@ -110,8 +111,8 @@ spawnable=yes
 detect=CODEX_SANDBOX CODEX_THREAD_ID
 detect_proc=codex codex-*
 hooks_file=.codex/hooks.json
-monitor=no
+monitor=yes
 stop_output=json
 hook_windows_wrap=yes
-delivery_modes=monitor turn off
+delivery_modes=monitor turn both off
 ```

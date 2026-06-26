@@ -61,10 +61,12 @@ To pick up a role added after a CC launched (without switching to it exclusively
 
 The send side mirrors this: every `send.sh` call from this CC uses the active role as the `from` agent, whether that's the implicit one (default) or the one set by the most recent `actas`.
 
-## Codex caveat
+## Codex
 
-On Codex, `$agmsg actas <name>` is **send-side only** for this session. Codex slash commands don't see a stable `session_id`, so they can't claim a peer-visible exclusivity lock — Claude Code peers will still subscribe to `<name>`.
+Codex follows the same Monitor-backed `actas` flow as Claude Code when delivery
+is `monitor` or `both`: the command claims the role lock, restarts the watcher
+with the active-name filter, and receive is narrowed to that role.
 
-The receive side isn't actually narrowed either: `check-inbox.sh` resolves identity through `whoami.sh` (which picks the first registered agent) and has no view of the agent's in-session actas role, so Codex keeps polling whichever pair it would have without actas. The check-inbox lock filter only skips pairs *another* session owns.
-
-Treat Codex actas as a from-line override until a Codex session-id story exists. Claude Code's `/agmsg actas` does claim the lock symmetrically and is the path that exercises the full exclusivity model.
+In `turn` mode there is no running Monitor stream to narrow. `check-inbox.sh`
+still resolves identity through `whoami.sh`, so `turn` mode should be treated as
+manual polling rather than exclusive receive.

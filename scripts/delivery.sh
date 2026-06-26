@@ -242,12 +242,11 @@ emit_monitor_directive() {
   local project="$2"
   local watch="$SKILL_DIR/scripts/watch.sh"
 
-  # Claude Code exports CLAUDE_CODE_SESSION_ID for every subprocess of the
-  # session. Bake it directly into the command so the agent never has to
-  # invent a value — that lets SessionEnd find and clean the matching
-  # pidfile reliably. Fall back to a generated id when the env var isn't
-  # present (older CC, non-CC runtimes).
-  local session_id="${CLAUDE_CODE_SESSION_ID:-}"
+  # Monitor-capable runtimes expose a stable per-session id to their
+  # subprocesses. Bake it directly into the command so the agent never has to
+  # invent a value — that lets SessionEnd find and clean the matching pidfile
+  # reliably. Fall back to a generated id when no runtime id is present.
+  local session_id="${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-}}"
   if [ -z "$session_id" ]; then
     session_id="agmsg-$(compat_uuidgen | tr 'A-Z' 'a-z')"
   fi
@@ -258,7 +257,7 @@ emit_monitor_directive() {
   # liveness check below see the real watcher (idempotent in watch.sh).
   session_id="$(agmsg_normalize_instance_id "$session_id" "$type")"
 
-  # Skip the directive when this CC session already has a live watcher —
+  # Skip the directive when this agent session already has a live watcher —
   # invoking Monitor again would just spawn a duplicate and orphan the
   # previous watcher process.
   local pidfile="$RUN_DIR/watch.$session_id.pid"
@@ -301,7 +300,7 @@ by this command.
 EOF
 }
 
-# Stop the Codex monitor bridge(s) for a project and remove their run artifacts,
+# Stop the legacy Codex bridge(s) for a project and remove their run artifacts,
 # then tear down the project's shared app-server record too (it is keyed per
 # project, so `off` should not leave it running). Used by `set off codex` (and
 # the manual counterpart to the not-yet-wired auto teardown, #149). The global
@@ -368,9 +367,8 @@ do_set() {
     echo "Unknown mode: $MODE (use monitor|turn|both|off)" >&2; exit 1 ;;
   esac
   # Second: does THIS type accept the mode? A type declares the modes its CLI
-  # accepts via the delivery_modes= manifest key (e.g. codex omits 'both' — the
-  # bridge beta has no both-mode; rule-file types like opencode omit
-  # 'monitor'/'both'). Reject anything not listed, before any file is touched.
+  # accepts via the delivery_modes= manifest key. Reject anything not listed,
+  # before any file is touched.
   # Types without the key fall back to the full set so an unconfigured manifest
   # still works.
   local SUPPORTED_MODES
@@ -389,7 +387,7 @@ do_set() {
 
   case "$MODE" in
     monitor|both)
-      # Type-specific enable side effects (shim install, watcher directive, …)
+      # Type-specific enable side effects (watcher directive, rule-file notes, …)
       # live in the type's plug as agmsg_delivery_on_enable; default is none.
       agmsg_delivery_on_enable "$MODE" "$TYPE" "$PROJECT"
       ;;

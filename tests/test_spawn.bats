@@ -254,7 +254,7 @@ teardown() {
 
 @test "spawn: codex spawns the codex CLI" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" --no-wait
   [ "$status" -eq 0 ]
   boot="$(cat "$CAPTURE")"
   [ -f "$boot" ]
@@ -306,11 +306,14 @@ teardown() {
   [[ "$output" != *"status="* ]]
 }
 
-@test "spawn: codex skips the readiness wait (no Monitor)" {
+@test "spawn: codex readiness handshake returns status=ready when the watcher attaches" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  mkdir -p "$TEST_SKILL_DIR/run"
+  local ready="$TEST_SKILL_DIR/run/ready.myteam__reviewer"
+  run env -u TMUX bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" \
+    --ready-timeout 10 --terminal "touch $ready # {cmd}"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipping readiness wait"* ]]
+  [[ "$output" == *"status=ready"* ]]
 }
 
 @test "spawn: grok-build skips the readiness wait even without --no-wait (monitor=no)" {

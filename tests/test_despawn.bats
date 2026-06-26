@@ -104,7 +104,7 @@ teardown() {
   kill "$wpid" 2>/dev/null || true; wait "$wpid" 2>/dev/null || true
 }
 
-@test "despawn: graceful no-op when the member holds no live lock (e.g. codex)" {
+@test "despawn: graceful no-op when the member holds no live lock" {
   bash "$SCRIPTS/join.sh" team alice codex "$PROJ" >/dev/null
   run bash "$SCRIPTS/despawn.sh" team leader alice
   [ "$status" -eq 0 ]

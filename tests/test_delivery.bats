@@ -565,6 +565,14 @@ has_session_end() {
   ! [[ "$output" =~ "\\\$AGMSG_SESSION_ID" ]]
 }
 
+@test "delivery set monitor (codex): bakes CODEX_THREAD_ID into the directive" {
+  run env CODEX_THREAD_ID="codex-thread-123" bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "AGMSG-DIRECTIVE" ]]
+  [[ "$output" =~ "codex-thread-123" ]]
+  [[ "$output" =~ "codex" ]]
+}
+
 # --- session-start.sh: stale watcher pidfile cleanup ---
 
 @test "session-start.sh removes watch.<sid>.pid files whose pid is dead" {
@@ -663,6 +671,7 @@ EOF
   # compare — without it, a CODEX_THREAD_ID inherited from the parent env (e.g.
   # running the suite inside a Codex session) short-circuits the resolver and
   # this test never exercises the path it's meant to cover.
+  AGMSG_CODEX_BRIDGE=1 \
   AGMSG_CODEX_BRIDGE_APP_SERVER="unix://$TEST_SKILL_DIR/run/codex-app-server.test.sock" \
   AGMSG_CODEX_BRIDGE_CMD="$fake" \
   AGMSG_TEST_LOG="$log" \
@@ -1383,7 +1392,7 @@ JSON
   [ "$count" -eq 1 ]
 }
 
-# --- Codex monitor bridge (#41) ---
+# --- Codex legacy bridge (#41) ---
 @test "session-start.sh for codex starts bridge when monitor launcher env is present" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
@@ -1413,7 +1422,7 @@ EOF
   grep -q -- "--inline-inbox" "$log"
 }
 
-@test "session-start.sh for codex stays quiet without monitor launcher env" {
+@test "session-start.sh for codex emits native Monitor directive without bridge env" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
   local log="$TEST_SKILL_DIR/fake-codex-bridge.log"
@@ -1423,35 +1432,39 @@ printf '%s\n' "$*" >> "$AGMSG_TEST_LOG"
 EOF
   chmod +x "$fake"
 
-  AGMSG_CODEX_BRIDGE_CMD="$fake" AGMSG_TEST_LOG="$log" CODEX_THREAD_ID="thread-123" \
-    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" >/dev/null
+  run env AGMSG_CODEX_BRIDGE_CMD="$fake" AGMSG_TEST_LOG="$log" CODEX_THREAD_ID="thread-123" \
+    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT"
 
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"invoke the Monitor tool"* ]]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" == *"thread-123"* ]]
+  [[ "$output" == *"codex"* ]]
   [ ! -f "$log" ]
 }
 
-@test "delivery set monitor (codex): installs SessionStart and Codex shim" {
+@test "delivery set monitor (codex): installs SessionStart and emits native Monitor directive" {
   run bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Codex monitor shim installed"* ]]
-  [[ "$output" == *"launch with codex"* ]]
-  # HOME is sandboxed, so ~/.agents/bin is not on PATH → the loud PATH warning fires.
-  [[ "$output" == *"WARNING: ~/.agents/bin is NOT on your PATH"* ]]
-  [[ "$output" == *"export PATH=\"\$HOME/.agents/bin:\$PATH\""* ]]
-  [[ "$output" == *"For more info: https://github.com/fujibee/agmsg/blob/main/docs/codex-monitor-beta.md"* ]]
-  [[ "$output" != *"Monitor tool"* ]]
-  [ -x "$HOME/.agents/bin/codex" ]
-  grep -q "Optional Codex entrypoint shim for agmsg monitor mode" "$HOME/.agents/bin/codex"
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  [[ "$output" == *"invoke the Monitor tool"* ]]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" != *"Codex legacy bridge shim installed"* ]]
+  [[ "$output" != *"WARNING: ~/.agents/bin is NOT on your PATH"* ]]
+  [ ! -e "$HOME/.agents/bin/codex" ]
   local hook_file="$TEST_PROJECT/.codex/hooks.json"
   [ -f "$hook_file" ]
   grep -q "session-start.sh" "$hook_file"
 }
 
-@test "delivery set both (codex): rejected by the delivery_modes gate" {
-  # codex's manifest omits 'both' (delivery_modes=monitor turn off), so the
-  # central gate in delivery.sh rejects it before any file is touched.
+@test "delivery set both (codex): installs SessionStart and Stop like claude-code" {
   run bash "$SCRIPTS/delivery.sh" set both codex "$TEST_PROJECT"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"not supported for codex"* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  local hook_file="$TEST_PROJECT/.codex/hooks.json"
+  [ -f "$hook_file" ]
+  grep -q "session-start.sh" "$hook_file"
+  grep -q "check-inbox.sh" "$hook_file"
 }
 
 
@@ -1484,17 +1497,17 @@ EOF
   grep -q -- "--thread rollout-thread-999" "$log"
 }
 
-@test "delivery set monitor (codex): warns loudly when Node is missing" {
+@test "delivery set monitor (codex legacy bridge): warns loudly when Node is missing" {
   # Node preflight: the bridge is a Node program; enabling monitor without Node
   # must flag it rather than silently never starting. AGMSG_CODEX_NODE points the
   # check at a binary that does not exist. See #41.
-  run env AGMSG_CODEX_NODE=__agmsg_no_such_node__ bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
+  run env AGMSG_CODEX_BRIDGE=1 AGMSG_CODEX_NODE=__agmsg_no_such_node__ bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"WARNING: Node.js"* ]]
   [[ "$output" == *"monitor delivery will NOT start"* ]]
 }
 
-@test "delivery set off (codex): stops the bridge, cleans run files, notes the shared shim" {
+@test "delivery set off (codex): stops the bridge and cleans run files" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   mkdir -p "$TEST_SKILL_DIR/run"
   # Stand in for a live bridge with a real process we can check kill -0 against.
@@ -1516,7 +1529,7 @@ EOF
   run bash "$SCRIPTS/delivery.sh" set off codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Stopped 1 Codex bridge"* ]]
-  [[ "$output" == *"shim"* ]]
+  [[ "$output" != *"shared shim"* ]]
   ! kill -0 "$bpid" 2>/dev/null
   [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
   [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" ]

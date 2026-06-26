@@ -62,5 +62,5 @@ Same idea: ask your agent to rename the team. It will move the team directory, u
 
 ## See also
 
-- [docs/actas.md](actas.md) — multi-role mechanics, exclusivity locks, Codex caveat.
+- [docs/actas.md](actas.md) — multi-role mechanics and exclusivity locks.
 - [README — Shell (any agent)](../README.md#shell-any-agent) — script quick-reference for automation, CI, sandboxes.

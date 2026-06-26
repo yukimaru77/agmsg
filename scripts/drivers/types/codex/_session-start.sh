@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# codex SessionStart plug — hand the session off to the Codex bridge.
+# codex SessionStart plug — optional legacy bridge handoff.
 #
 # Sourced by session-start.sh in its global context (so it sees TYPE, PROJECT,
 # RUN_DIR, SKILL_DIR, SCRIPT_DIR, PAIRS and the helpers agmsg_sha1,
 # agmsg_sqlite_mem, agmsg_resolve_node, agmsg_canonical_path, agmsg_agent_pid).
 # Defines agmsg_session_start, overriding session-start.sh's default no-op.
 #
-# Codex has no Monitor tool. When launched through codex-monitor.sh, the TUI is
-# attached to a shared app-server. Hand the bridge off so incoming agmsg rows
-# become turns in the current Codex thread without exposing socket/thread
-# plumbing to the user. With AGMSG_CODEX_BRIDGE_LAUNCHER=1 (set by
-# codex-monitor.sh) we only write a request file and let the out-of-sandbox
-# launcher start the bridge — a hook-launched bridge cannot connect to the unix
-# socket from inside the Codex sandbox (#41).
+# Native Monitor uses session-start.sh's default directive path. The legacy
+# app-server bridge remains opt-in: when launched through codex-monitor.sh
+# (AGMSG_CODEX_BRIDGE=1), the TUI is attached to a shared app-server and this
+# plug starts or requests the bridge instead. With AGMSG_CODEX_BRIDGE_LAUNCHER=1
+# (set by codex-monitor.sh) we only write a request file and let the
+# out-of-sandbox launcher start the bridge — a hook-launched bridge cannot
+# connect to the unix socket from inside the Codex sandbox (#41).
 
 # Resolve the current Codex thread id. CODEX_THREAD_ID is only exported on the
 # interactive --remote path; fresh and `codex exec` sessions never export it, so
@@ -60,6 +60,8 @@ INNER_EOF
 }
 
 agmsg_session_start() {
+  [ "${AGMSG_CODEX_BRIDGE:-}" = "1" ] || return 0
+
   thread_id="$(agmsg_resolve_codex_thread "$PROJECT")"
   [ -n "$thread_id" ] || exit 0
   app_server="${AGMSG_CODEX_BRIDGE_APP_SERVER:-}"

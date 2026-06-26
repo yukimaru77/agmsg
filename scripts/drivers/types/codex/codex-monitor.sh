@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Launch Codex with agmsg's app-server bridge enabled.
 #
-# This is a beta convenience wrapper: it hides the shared app-server socket and
-# lets session-start.sh launch codex-bridge.js in the background once Codex
-# exposes CODEX_THREAD_ID to hooks.
+# This legacy compatibility wrapper hides the shared app-server socket and lets
+# session-start.sh launch codex-bridge.js in the background once Codex exposes
+# CODEX_THREAD_ID to hooks.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
@@ -86,7 +86,7 @@ PROJECT="$(cd "$PROJECT" && pwd)"
 # otherwise message receipt stops silently. The earlier echoes give the specific
 # reason + log path; this prints the one-line summary just before handoff.
 exec_plain_codex() {
-  echo "agmsg: Codex monitor bridge unavailable - launching plain Codex. Real-time agmsg delivery is OFF this session (messages still queue; check your inbox manually). Likely cause: the Codex app-server interface changed in 0.142+. Fix in progress." >&2
+  echo "agmsg: legacy Codex bridge unavailable - launching plain Codex. Real-time agmsg delivery is OFF this session (messages still queue; check your inbox manually). Likely cause: the Codex app-server interface changed in 0.142+. Fix in progress." >&2
   cd "$PROJECT" 2>/dev/null || true
   case "$CODEX_COMMAND" in
     codex)  exec "$REAL_CODEX" ${CODEX_ARGS[@]+"${CODEX_ARGS[@]}"} ;;
@@ -191,7 +191,7 @@ if ! port_alive "$PORT"; then
 fi
 SOCKET_URL="ws://127.0.0.1:$PORT"
 
-"$SCRIPT_DIR/../../../delivery.sh" set monitor codex "$PROJECT" >/dev/null
+AGMSG_CODEX_BRIDGE=1 "$SCRIPT_DIR/../../../delivery.sh" set monitor codex "$PROJECT" >/dev/null
 
 export AGMSG_CODEX_BRIDGE=1
 export AGMSG_CODEX_BRIDGE_APP_SERVER="$SOCKET_URL"

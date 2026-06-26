@@ -150,6 +150,31 @@ install_windows_helpers() {
   fi
 }
 
+install_legacy_codex_driver_wrappers() {
+  # Older Codex hooks/bridges called these files directly from scripts/.
+  # The real type implementation now lives under scripts/drivers/types/codex/.
+  # Keep the old paths as thin wrappers so an update cannot leave stale code
+  # behind or break already-registered project hooks.
+  local legacy_dir="$SKILL_DIR/scripts"
+  mkdir -p "$legacy_dir"
+
+  local sh_name
+  for sh_name in codex-bridge-launcher.sh codex-monitor.sh codex-shim-install.sh codex-shim.sh watch-once.sh; do
+    cat > "$legacy_dir/$sh_name" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec "\$(cd "\$(dirname "\$0")" && pwd)/drivers/types/codex/$sh_name" "\$@"
+EOF
+    chmod +x "$legacy_dir/$sh_name"
+  done
+
+  cat > "$legacy_dir/codex-bridge.js" <<'EOF'
+#!/usr/bin/env node
+require("./drivers/types/codex/codex-bridge.js");
+EOF
+  chmod +x "$legacy_dir/codex-bridge.js"
+}
+
 # --- Parse args ---
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -291,6 +316,7 @@ if [ "$UPDATE_ONLY" = true ]; then
   cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
   chmod +x "$SKILL_DIR/scripts/"*.sh
   chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
+  install_legacy_codex_driver_wrappers
   # Refresh the Codex monitor shim (~/.agents/bin/codex) if it's ours. --update
   # cp's the new codex-shim-install.sh but does not re-run it, so a shim from an
   # older install keeps its stale baked exec path after the
@@ -361,6 +387,7 @@ cp "$SCRIPT_DIR/plugins/README.md" "$SKILL_DIR/plugins/README.md" 2>/dev/null ||
 cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
 chmod +x "$SKILL_DIR/scripts/"*.sh
 chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
+install_legacy_codex_driver_wrappers
 # Re-point an existing Codex monitor shim at the new path on a reinstall over an
 # older layout (no-op when no agmsg shim is present). See the --update block above.
 CODEX_SHIM="$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh"

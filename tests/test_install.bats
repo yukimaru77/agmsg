@@ -45,6 +45,31 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "install: fresh install ships legacy Codex script paths as driver wrappers" {
+  HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg --agent-type codex
+
+  grep -q "drivers/types/codex/watch-once.sh" "$SK/scripts/watch-once.sh"
+  grep -q "drivers/types/codex/codex-shim.sh" "$SK/scripts/codex-shim.sh"
+  grep -q "drivers/types/codex/codex-bridge.js" "$SK/scripts/codex-bridge.js"
+  [ -x "$SK/scripts/watch-once.sh" ]
+  [ -x "$SK/scripts/codex-shim.sh" ]
+  [ -x "$SK/scripts/codex-bridge.js" ]
+}
+
+@test "install: --update replaces stale legacy Codex scripts with driver wrappers" {
+  HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg --agent-type codex
+  printf '#!/usr/bin/env bash\necho stale-watch\n' > "$SK/scripts/watch-once.sh"
+  printf '#!/usr/bin/env node\nconsole.log("stale-bridge")\n' > "$SK/scripts/codex-bridge.js"
+  chmod +x "$SK/scripts/watch-once.sh" "$SK/scripts/codex-bridge.js"
+
+  HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg --agent-type codex --update
+
+  grep -q "drivers/types/codex/watch-once.sh" "$SK/scripts/watch-once.sh"
+  grep -q "drivers/types/codex/codex-bridge.js" "$SK/scripts/codex-bridge.js"
+  ! grep -q "stale-watch" "$SK/scripts/watch-once.sh"
+  ! grep -q "stale-bridge" "$SK/scripts/codex-bridge.js"
+}
+
 @test "install: --update --cmd updates the named skill even when a backup skill exists" {
   HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg
   local backup="$FAKE_HOME/.agents/skills/agmsg.backup-keep"

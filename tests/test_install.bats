@@ -226,6 +226,18 @@ wait_for_pidfile_pid() {
   grep -q "whoami.sh \"\$(pwd)\" opencode" "$FAKE_HOME/.config/opencode/skills/agmsg/SKILL.md"
 }
 
+@test "install --update: does not let an OpenCode symlink overwrite the shared Codex skill" {
+  mkdir -p "$FAKE_HOME/.config/opencode/skills"
+  HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg --agent-type codex
+  rm -rf "$FAKE_HOME/.config/opencode/skills/agmsg"
+  ln -s "$SK" "$FAKE_HOME/.config/opencode/skills/agmsg"
+
+  HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --update --cmd agmsg --agent-type codex
+
+  grep -q "whoami.sh \"\$(pwd)\" codex" "$SK/SKILL.md"
+  ! grep -q "whoami.sh \"\$(pwd)\" opencode" "$SK/SKILL.md"
+}
+
 @test "install: no PowerShell launcher is shipped (dispatcher only)" {
   AGMSG_FORCE_WINDOWS=1 HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd msg
 

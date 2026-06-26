@@ -126,6 +126,14 @@ is_windows_host() {
   esac
 }
 
+same_existing_dir() {
+  [ -e "$1" ] && [ -e "$2" ] || return 1
+  local a b
+  a="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  b="$(cd "$2" 2>/dev/null && pwd -P)" || return 1
+  [ "$a" = "$b" ]
+}
+
 install_windows_helpers() {
   if ! is_windows_host; then
     return 0
@@ -298,8 +306,12 @@ if [ "$UPDATE_ONLY" = true ]; then
   # Refresh / install the OpenCode skill (same reasoning as Copilot above).
   OPENCODE_SKILL_DIR="$HOME/.config/opencode/skills/$SKILL_NAME"
   if [ -d "$HOME/.config/opencode" ]; then
-    mkdir -p "$OPENCODE_SKILL_DIR"
-    sed "s/__SKILL_NAME__/$SKILL_NAME/g" "$(agmsg_type_template_path opencode)" > "$OPENCODE_SKILL_DIR/SKILL.md"
+    if same_existing_dir "$OPENCODE_SKILL_DIR" "$SKILL_DIR"; then
+      echo "  ~ OpenCode skill path points at shared skill; keeping shared SKILL.md"
+    else
+      mkdir -p "$OPENCODE_SKILL_DIR"
+      sed "s/__SKILL_NAME__/$SKILL_NAME/g" "$(agmsg_type_template_path opencode)" > "$OPENCODE_SKILL_DIR/SKILL.md"
+    fi
   fi
   # Refresh / install the Hermes Agent skill (same reasoning as Copilot above).
   HERMES_SKILL_DIR="$HOME/.hermes/skills/$SKILL_NAME"
@@ -441,9 +453,13 @@ fi
 # copy separate, same pattern as Copilot.
 OPENCODE_SKILL_DIR="$HOME/.config/opencode/skills/$CMD_NAME"
 if [ -d "$HOME/.config/opencode" ]; then
-  mkdir -p "$OPENCODE_SKILL_DIR"
-  sed "s/__SKILL_NAME__/$CMD_NAME/g" "$(agmsg_type_template_path opencode)" > "$OPENCODE_SKILL_DIR/SKILL.md"
-  echo "  + installed \$$CMD_NAME skill to ~/.config/opencode/skills/"
+  if same_existing_dir "$OPENCODE_SKILL_DIR" "$SKILL_DIR"; then
+    echo "  ~ OpenCode skill path points at shared skill; keeping shared SKILL.md"
+  else
+    mkdir -p "$OPENCODE_SKILL_DIR"
+    sed "s/__SKILL_NAME__/$CMD_NAME/g" "$(agmsg_type_template_path opencode)" > "$OPENCODE_SKILL_DIR/SKILL.md"
+    echo "  + installed \$$CMD_NAME skill to ~/.config/opencode/skills/"
+  fi
 fi
 
 # --- Install Hermes Agent skill ---

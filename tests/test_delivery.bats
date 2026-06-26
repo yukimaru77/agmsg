@@ -569,6 +569,8 @@ has_session_end() {
   run env CODEX_THREAD_ID="codex-thread-123" bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" =~ "AGMSG-DIRECTIVE" ]]
+  [[ "$output" =~ "monitor_start" ]]
+  [[ "$output" =~ "AGMSG_WATCH_READY_STDOUT=1" ]]
   [[ "$output" =~ "codex-thread-123" ]]
   [[ "$output" =~ "codex" ]]
 }
@@ -1436,7 +1438,8 @@ EOF
     bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"invoke the Monitor tool"* ]]
+  [[ "$output" == *"monitor_start"* ]]
+  [[ "$output" == *"AGMSG_WATCH_READY_STDOUT=1"* ]]
   [[ "$output" == *"watch.sh"* ]]
   [[ "$output" == *"thread-123"* ]]
   [[ "$output" == *"codex"* ]]
@@ -1447,7 +1450,8 @@ EOF
   run bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
-  [[ "$output" == *"invoke the Monitor tool"* ]]
+  [[ "$output" == *"monitor_start"* ]]
+  [[ "$output" == *"AGMSG_WATCH_READY_STDOUT=1"* ]]
   [[ "$output" == *"watch.sh"* ]]
   [[ "$output" != *"Codex legacy bridge shim installed"* ]]
   [[ "$output" != *"WARNING: ~/.agents/bin is NOT on your PATH"* ]]
@@ -1528,6 +1532,8 @@ EOF
 
   run bash "$SCRIPTS/delivery.sh" set off codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"monitor_stop"* ]]
+  [[ "$output" != *"TaskStop"* ]]
   [[ "$output" == *"Stopped 1 Codex bridge"* ]]
   [[ "$output" != *"shared shim"* ]]
   ! kill -0 "$bpid" 2>/dev/null

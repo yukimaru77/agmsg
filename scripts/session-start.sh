@@ -224,6 +224,23 @@ WATCH="$SKILL_DIR/scripts/watch.sh"
 # it verbatim. A plain '...' wrap breaks on paths with an apostrophe
 # (/Users/o'brien/...); printf %q escapes spaces, quotes and other metacharacters
 # safely for shell re-execution (#188).
+if [ "$TYPE" = "codex" ]; then
+  WATCH_COMMAND="$(printf 'AGMSG_WATCH_READY_STDOUT=1 %q %q %q %q' "$WATCH" "$INSTANCE_ID" "$PROJECT" "$TYPE")"
+  cat <<EOF
+AGMSG monitor mode: call the native monitor_start tool now, before any other
+action in this Codex session.
+
+  name: agmsg-inbox-stream
+  command: $WATCH_COMMAND
+
+Do not run the command with exec_command; monitor_start must own the
+long-running watcher. The initial "agmsg watch: ready ..." line only confirms
+the stream attached. Incoming agmsg messages arrive as monitor notifications;
+reply with \`send.sh\`.
+EOF
+  exit 0
+fi
+
 WATCH_COMMAND="$(printf '%q %q %q %q' "$WATCH" "$INSTANCE_ID" "$PROJECT" "$TYPE")"
 
 cat <<EOF

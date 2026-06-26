@@ -3,8 +3,8 @@
 #
 # Native Monitor is the default path, matching claude-code. The legacy
 # app-server bridge/shim stays available only when AGMSG_CODEX_BRIDGE=1 is set.
-# Sourced into delivery.sh's context, so SKILL_DIR, emit_monitor_directive,
-# agmsg_resolve_node, CODEX_MONITOR_DOC_URL, kill_all_watchers, and
+# Sourced into delivery.sh's context, so SKILL_DIR, emit_codex_monitor_directive,
+# emit_codex_stop_directive, agmsg_resolve_node, CODEX_MONITOR_DOC_URL, kill_all_watchers, and
 # stop_codex_bridge are in scope.
 # Args (both hooks): on_enable <mode> <type> <project>; on_disable <type> <project>.
 
@@ -15,7 +15,7 @@ agmsg_codex_legacy_bridge_enabled() {
 agmsg_delivery_on_enable() {
   if ! agmsg_codex_legacy_bridge_enabled; then
     echo "Future sessions: SessionStart hook will auto-launch the watcher."
-    emit_monitor_directive "$2" "$3"
+    emit_codex_monitor_directive "$2" "$3"
     return
   fi
 
@@ -50,6 +50,10 @@ agmsg_delivery_on_enable() {
   echo "  message — the bridge starts on your first turn, not the moment Codex opens."
   echo "  Already-running sessions stay unmonitored until they restart."
   echo "For more info: $CODEX_MONITOR_DOC_URL"
+}
+
+agmsg_delivery_stop_directive() {
+  emit_codex_stop_directive
 }
 
 agmsg_delivery_on_disable() {

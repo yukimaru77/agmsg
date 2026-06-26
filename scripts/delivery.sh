@@ -290,6 +290,55 @@ Pass the command above verbatim — the session_id is already filled in.
 EOF
 }
 
+emit_codex_monitor_directive() {
+  local type="$1"
+  local project="$2"
+  local active_name="${3:-}"
+  local watch="$SKILL_DIR/scripts/watch.sh"
+
+  local session_id="${CODEX_THREAD_ID:-}"
+  if [ -z "$session_id" ]; then
+    session_id="agmsg-codex-$(compat_uuidgen | tr 'A-Z' 'a-z')"
+  fi
+  session_id="$(agmsg_normalize_instance_id "$session_id" "$type")"
+
+  local pidfile="$RUN_DIR/watch.$session_id.pid"
+  if [ -f "$pidfile" ]; then
+    local existing
+    existing=$(cat "$pidfile" 2>/dev/null || true)
+    if [ -n "$existing" ] && kill -0 "$existing" 2>/dev/null; then
+      cat <<EOF
+
+A watch.sh is already streaming into this Codex session (pid $existing). No
+action needed — the existing watcher is the active one.
+EOF
+      return 0
+    fi
+  fi
+
+  local name="agmsg-inbox-stream"
+  if [ -n "$active_name" ]; then
+    name="agmsg-inbox-stream-$active_name"
+  fi
+
+  local watch_command
+  if [ -n "$active_name" ]; then
+    watch_command="$(printf 'AGMSG_WATCH_READY_STDOUT=1 %q %q %q %q %q' "$watch" "$session_id" "$project" "$type" "$active_name")"
+  else
+    watch_command="$(printf 'AGMSG_WATCH_READY_STDOUT=1 %q %q %q %q' "$watch" "$session_id" "$project" "$type")"
+  fi
+
+  cat <<EOF
+
+AGMSG-DIRECTIVE: For this running Codex session, call the native monitor_start tool now with:
+  name: $name
+  command: $watch_command
+
+Do not run the command with exec_command; monitor_start must own the long-running watcher.
+The initial "agmsg watch: ready ..." line only confirms the stream attached.
+EOF
+}
+
 emit_stop_directive() {
   cat <<'EOF'
 
@@ -297,6 +346,16 @@ AGMSG-DIRECTIVE: If an agmsg watch Monitor task is running in this session,
 find it with TaskList (description starts with "agmsg inbox stream") and
 stop it with TaskStop. Existing watch.sh processes have already been killed
 by this command.
+EOF
+}
+
+emit_codex_stop_directive() {
+  cat <<'EOF'
+
+AGMSG-DIRECTIVE: If an agmsg monitor is running in this Codex session, call
+monitor_stop for any monitor named `agmsg-inbox-stream` or starting with
+`agmsg-inbox-stream-`. Existing watch.sh processes have already been killed by
+this command.
 EOF
 }
 

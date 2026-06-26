@@ -280,6 +280,14 @@ if [ -n "$ACTIVE_NAME" ]; then
   done <<< "$PAIRS"
 fi
 
+if [ "${AGMSG_WATCH_READY_STDOUT:-}" = "1" ]; then
+  if [ -n "$ACTIVE_NAME" ]; then
+    printf 'agmsg watch: ready for %s (%s, active=%s)\n' "$PROJECT_PATH" "$AGENT_TYPE" "$ACTIVE_NAME"
+  else
+    printf 'agmsg watch: ready for %s (%s)\n' "$PROJECT_PATH" "$AGENT_TYPE"
+  fi
+fi
+
 while true; do
   # Liveness guard (#67): exit promptly once the originating agent session is
   # gone. A plain pipe gives no portable way to notice a *downstream* consumer

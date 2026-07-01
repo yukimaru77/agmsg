@@ -334,16 +334,23 @@ is_codex_bridge_cmdline() {
   local name="$4"
   [ -n "$cmd" ] || return 1
 
-  # Default launches include codex-bridge.js in argv; test/custom wrappers may
-  # carry codex-bridge in their script name. For wrappers with another name,
-  # accept only the bridge argv shape for this exact identity.
-  printf '%s' "$cmd" | grep -Fq -- "codex-bridge" && return 0
+  # A stale pidfile is untrusted: do not accept "codex-bridge" in a filename or
+  # log path by itself. A real bridge launch always carries this exact identity
+  # argv shape, including custom wrappers launched by agmsg.
   printf '%s' "$cmd" | grep -Fq -- "--project" || return 1
   printf '%s' "$cmd" | grep -Fq -- "$project" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "--type codex" || return 1
   printf '%s' "$cmd" | grep -Fq -- "--team" || return 1
   printf '%s' "$cmd" | grep -Fq -- "$team" || return 1
   printf '%s' "$cmd" | grep -Fq -- "--name" || return 1
   printf '%s' "$cmd" | grep -Fq -- "$name" || return 1
+}
+
+is_codex_app_server_cmdline() {
+  local cmd="$1"
+  [ -n "$cmd" ] || return 1
+  printf '%s' "$cmd" | grep -Fq -- "app-server" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "--listen" || return 1
 }
 
 # Stop legacy Codex monitor bridge(s) for a project and remove their run artifacts,
@@ -390,9 +397,7 @@ EOF
       server_pid="$(cat "$server_pidfile" 2>/dev/null || true)"
       if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
         server_cmd="$(compat_get_cmdline "$server_pid" 2>/dev/null || true)"
-        case "$server_cmd" in
-          *codex*app-server*) kill "$server_pid" 2>/dev/null || true ;;
-        esac
+        is_codex_app_server_cmdline "$server_cmd" && kill "$server_pid" 2>/dev/null || true
       fi
       rm -f "$RUN_DIR/codex-app-server.$project_hash.pid" \
             "$RUN_DIR/codex-app-server.$project_hash.port" \

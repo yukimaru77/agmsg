@@ -173,7 +173,15 @@ while True:
   skip_on_windows "process command-line inspection under Git Bash (#182)"
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
 
-  sleep 60 &
+  local unrelated="$TEST_PROJECT/codex-bridge-not-a-bridge"
+  cat > "$unrelated" <<'EOF'
+#!/usr/bin/env bash
+trap 'printf unrelated-term > "$AGMSG_TERM_LOG"; exit 0' TERM
+while :; do sleep 1; done
+EOF
+  chmod +x "$unrelated"
+  local term_log="$TEST_PROJECT/unrelated.term"
+  AGMSG_TERM_LOG="$term_log" "$unrelated" >/dev/null 2>&1 3>&- &
   local unrelated_pid=$!
   sleep 2 &
   local parent_pid=$!
@@ -197,6 +205,7 @@ EOF
     bash "$TYPES/codex/codex-bridge-launcher.sh" codex "$TEST_PROJECT" "ws://127.0.0.1:2" "$parent_pid"
   [ "$status" -eq 0 ]
   kill -0 "$unrelated_pid"
+  [ ! -f "$term_log" ]
   [ ! -f "$pidfile" ]
   [ -f "$fake_log" ]
   grep -q -- "--app-server ws://127.0.0.1:2" "$fake_log"

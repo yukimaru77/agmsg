@@ -50,7 +50,24 @@ if [ -z "$SESSION_ID" ]; then
     grok-build) SESSION_ID="${GROK_SESSION_ID:-}" ;;
   esac
 fi
-[ -z "$SESSION_ID" ] && exit 0
+
+AGENT_PID=$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)
+INSTANCE_ID=""
+
+if [ -n "$AGENT_PID" ]; then
+  STATE_FILE="$RUN_DIR/cc-instance.$AGENT_PID"
+  if [ -f "$STATE_FILE" ]; then
+    STATE_ID=$(head -1 "$STATE_FILE" 2>/dev/null || true)
+    if [ -n "$STATE_ID" ]; then
+      if agmsg_instance_is_composite "$STATE_ID" && [ "${STATE_ID##*.}" != "$AGENT_PID" ]; then
+        STATE_ID=""
+      fi
+      INSTANCE_ID="$STATE_ID"
+    fi
+  fi
+fi
+
+[ -z "$SESSION_ID" ] && [ -z "$INSTANCE_ID" ] && exit 0
 
 # Re-derive the per-process instance id this session's watcher/locks are keyed
 # under (#93). The enclosing agent process is still alive during the hook, so
@@ -60,7 +77,13 @@ fi
 # resolved we fall back to the bare session_id (and clean only the bare-keyed
 # artifacts); we deliberately do NOT glob-delete "<sid>.*", which would kill a
 # living sibling — those are left to session-start's liveness GC instead.
-INSTANCE_ID="$(agmsg_instance_id "$SESSION_ID" "$TYPE")"
+if [ -z "$INSTANCE_ID" ]; then
+  if [ -n "$AGENT_PID" ]; then
+    INSTANCE_ID="$(agmsg_instance_id_from_pid "$SESSION_ID" "$AGENT_PID")"
+  else
+    INSTANCE_ID="$(agmsg_instance_id "$SESSION_ID" "$TYPE")"
+  fi
+fi
 
 PIDFILE="$RUN_DIR/watch.$INSTANCE_ID.pid"
 if [ -f "$PIDFILE" ]; then

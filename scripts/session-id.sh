@@ -33,11 +33,18 @@ fi
 
 session_id="${AGMSG_SESSION_ID:-}"
 agent_pid="$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)"
+state_file=""
 
 if [ -z "$session_id" ] && [ -n "$agent_pid" ]; then
   state_file="$SKILL_DIR/run/cc-instance.$agent_pid"
   if [ -f "$state_file" ]; then
-    session_id="$(head -1 "$state_file" 2>/dev/null || true)"
+    state_id="$(head -1 "$state_file" 2>/dev/null || true)"
+    if [ -n "$state_id" ]; then
+      if agmsg_instance_is_composite "$state_id" && [ "${state_id##*.}" != "$agent_pid" ]; then
+        state_id=""
+      fi
+      session_id="$state_id"
+    fi
   fi
 fi
 
@@ -48,14 +55,27 @@ if [ -z "$session_id" ]; then
   esac
 fi
 
+write_fallback_state=0
 if [ -z "$session_id" ]; then
   if [ -n "$agent_pid" ]; then
     session_id="agmsg-$TYPE-$agent_pid"
+    write_fallback_state=1
   else
     session_id="agmsg-$(compat_uuidgen | tr 'A-Z' 'a-z')"
     printf 'agmsg: generated fallback session id for type=%s project=%s; cleanup may require session-end/off if no agent pid is visible\n' "$TYPE" "$PROJECT" >&2
   fi
 fi
 
-agmsg_normalize_instance_id "$session_id" "$TYPE"
-printf '\n'
+instance_id="$(agmsg_normalize_instance_id "$session_id" "$TYPE")"
+
+# If a manual in-session Monitor command has to invent the agent-pid fallback
+# before SessionStart runs, persist that owner token. A later hook with a real
+# sessionId then sees this as the previous watcher for the same agent process
+# and can stop/replace it instead of leaving an untracked fallback watcher.
+if [ "$write_fallback_state" = 1 ] && [ -n "$agent_pid" ]; then
+  mkdir -p "$SKILL_DIR/run" 2>/dev/null || true
+  state_file="$SKILL_DIR/run/cc-instance.$agent_pid"
+  [ -f "$state_file" ] || printf '%s\n' "$instance_id" > "$state_file"
+fi
+
+printf '%s\n' "$instance_id"

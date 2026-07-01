@@ -41,11 +41,9 @@ resolve_identity() {  # prints "team<TAB>name" lines for the project's codex rol
 is_bridge_cmdline() {
   local cmd="$1"
   [ -n "$cmd" ] || return 1
-  printf '%s' "$cmd" | grep -Fq -- "codex-bridge" && return 0
   printf '%s' "$cmd" | grep -Fq -- "--project" || return 1
   printf '%s' "$cmd" | grep -Fq -- "$PROJECT" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--type" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "$TYPE" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "--type $TYPE" || return 1
   printf '%s' "$cmd" | grep -Fq -- "--team" || return 1
   printf '%s' "$cmd" | grep -Fq -- "$team" || return 1
   printf '%s' "$cmd" | grep -Fq -- "--name" || return 1

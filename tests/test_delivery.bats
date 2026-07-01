@@ -1466,12 +1466,13 @@ printf '%s\n' "$*" >> "$AGMSG_TEST_LOG"
 EOF
   chmod +x "$fake"
 
-  AGMSG_CODEX_BRIDGE=1 \
-  AGMSG_CODEX_BRIDGE_APP_SERVER="unix://$TEST_SKILL_DIR/run/codex-app-server.test.sock" \
-  AGMSG_CODEX_BRIDGE_CMD="$fake" \
-  AGMSG_TEST_LOG="$log" \
-  CODEX_THREAD_ID="thread-123" \
-    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" >/dev/null
+  run env AGMSG_CODEX_BRIDGE=1 \
+    AGMSG_CODEX_BRIDGE_APP_SERVER="unix://$TEST_SKILL_DIR/run/codex-app-server.test.sock" \
+    AGMSG_CODEX_BRIDGE_CMD="$fake" \
+    AGMSG_TEST_LOG="$log" \
+    CODEX_THREAD_ID="thread-123" \
+    bash -c 'exec 3>&-; bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" >/dev/null 2>&1'
+  [ "$status" -eq 0 ]
 
   for _ in {1..20}; do
     [ -f "$log" ] && break
@@ -1483,6 +1484,55 @@ EOF
   grep -q -- "--thread thread-123" "$log"
   grep -q -- "--app-server unix://$TEST_SKILL_DIR/run/codex-app-server.test.sock" "$log"
   grep -q -- "--inline-inbox" "$log"
+}
+
+@test "codex legacy bridge starts when pidfile points at non-bridge process" {
+  skip_on_windows "process command-line inspection under Git Bash (#182)"
+  local driver="$TEST_PROJECT/legacy-bridge-driver.sh"
+  cat >"$driver" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exec 3>&- || true
+
+bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+mkdir -p "$TEST_SKILL_DIR/run"
+
+sleep 60 &
+unrelated_pid=$!
+trap 'kill "$unrelated_pid" 2>/dev/null || true' EXIT
+printf '%s\n' "$unrelated_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
+
+fake="$TEST_SKILL_DIR/fake-codex-bridge"
+log="$TEST_SKILL_DIR/fake-codex-bridge.log"
+cat >"$fake" <<'INNER'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AGMSG_TEST_LOG"
+INNER
+chmod +x "$fake"
+
+AGMSG_CODEX_BRIDGE=1 \
+AGMSG_CODEX_BRIDGE_APP_SERVER="unix://$TEST_SKILL_DIR/run/codex-app-server.test.sock" \
+AGMSG_CODEX_BRIDGE_CMD="$fake" \
+AGMSG_TEST_LOG="$log" \
+CODEX_THREAD_ID="thread-123" \
+  bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" >/dev/null
+
+kill -0 "$unrelated_pid"
+[ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
+for _ in {1..20}; do
+  [ -f "$log" ] && break
+  sleep 0.1
+done
+[ -f "$log" ]
+grep -q -- "--project $TEST_PROJECT" "$log"
+grep -q -- "--thread thread-123" "$log"
+
+kill "$unrelated_pid" 2>/dev/null || true
+trap - EXIT
+EOF
+  chmod +x "$driver"
+  run bash "$driver"
+  [ "$status" -eq 0 ]
 }
 
 @test "session-start.sh for codex emits Monitor directive without legacy bridge env" {
@@ -1535,7 +1585,7 @@ trap 'printf bridge-term > "$AGMSG_TERM_LOG"; exit 0' TERM
 while :; do sleep 1; done
 EOF
   chmod +x "$bridge_fake"
-  AGMSG_TERM_LOG="$bridge_term" "$bridge_fake" &
+  AGMSG_TERM_LOG="$bridge_term" "$bridge_fake" --project "$TEST_PROJECT" --type codex --team team --name alice &
   local bridge_pid=$!
   trap "kill $bridge_pid 2>/dev/null || true" EXIT
   printf '%s\n' "$bridge_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
@@ -1551,7 +1601,7 @@ trap 'printf server-term > "$AGMSG_TERM_LOG"; exit 0' TERM
 while :; do sleep 1; done
 EOF
   chmod +x "$server_fake"
-  AGMSG_TERM_LOG="$server_term" "$server_fake" &
+  AGMSG_TERM_LOG="$server_term" "$server_fake" app-server --listen &
   local server_pid=$!
   trap "kill $bridge_pid $server_pid 2>/dev/null || true" EXIT
   source "$SCRIPTS/lib/hash.sh"
@@ -1604,6 +1654,41 @@ EOF
     [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" ]
     [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.log" ]
     [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver" ]
+  done
+
+  kill "$unrelated_pid" 2>/dev/null || true
+  trap - EXIT
+}
+
+@test "delivery set monitor/off (codex): does not trust codex-bridge substring without bridge argv" {
+  skip_on_windows "process teardown under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  mkdir -p "$TEST_SKILL_DIR/run"
+
+  local unrelated="$TEST_SKILL_DIR/codex-bridge-not-a-bridge"
+  cat >"$unrelated" <<'EOF'
+#!/usr/bin/env bash
+trap 'printf unrelated-term > "$AGMSG_TERM_LOG"; exit 0' TERM
+while :; do sleep 1; done
+EOF
+  chmod +x "$unrelated"
+  local term_log="$TEST_SKILL_DIR/unrelated.term"
+  AGMSG_TERM_LOG="$term_log" "$unrelated" >/dev/null 2>&1 3>&- &
+  local unrelated_pid=$!
+  trap "kill $unrelated_pid 2>/dev/null || true" EXIT
+
+  local mode
+  for mode in monitor off; do
+    printf '%s\n' "$unrelated_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
+    : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta"
+    : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.log"
+    : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver"
+
+    run bash "$SCRIPTS/delivery.sh" set "$mode" codex "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    kill -0 "$unrelated_pid"
+    [ ! -f "$term_log" ]
+    [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
   done
 
   kill "$unrelated_pid" 2>/dev/null || true
@@ -1694,6 +1779,97 @@ EOF
   [[ "$output" != *"agmsg-codex-4242"* ]]
 }
 
+@test "session-start.sh for codex replaces a manual fallback watcher" {
+  skip_on_windows "watcher process kill under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  local agent_pid="$$"
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  local fallback_sid="$output"
+  [ "$fallback_sid" = "agmsg-codex-$agent_pid.$agent_pid" ]
+  [ "$(cat "$TEST_SKILL_DIR/run/cc-instance.$agent_pid")" = "$fallback_sid" ]
+
+  AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "$fallback_sid" "$TEST_PROJECT" codex >/dev/null 2>&1 &
+  local watcher_pid=$!
+  trap "kill $watcher_pid 2>/dev/null || true" EXIT
+  for _ in {1..20}; do
+    [ -f "$TEST_SKILL_DIR/run/watch.$fallback_sid.pid" ] && break
+    sleep 0.1
+  done
+  [ -f "$TEST_SKILL_DIR/run/watch.$fallback_sid.pid" ]
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" \
+    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" <<<'{"sessionId":"hook-thread-123"}'
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_SKILL_DIR/run/cc-instance.$agent_pid")" = "hook-thread-123.$agent_pid" ]
+  for _ in {1..30}; do
+    ! kill -0 "$watcher_pid" 2>/dev/null && break
+    sleep 0.1
+  done
+  ! kill -0 "$watcher_pid" 2>/dev/null
+  [ ! -f "$TEST_SKILL_DIR/run/watch.$fallback_sid.pid" ]
+  [[ "$output" == *"hook-thread-123.$agent_pid"* ]]
+  trap - EXIT
+}
+
+@test "session-end.sh for codex cleans a manual fallback watcher when hook id differs" {
+  skip_on_windows "watcher process kill under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  local agent_pid="$$"
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  local fallback_sid="$output"
+
+  AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "$fallback_sid" "$TEST_PROJECT" codex >/dev/null 2>&1 &
+  local watcher_pid=$!
+  trap "kill $watcher_pid 2>/dev/null || true" EXIT
+  for _ in {1..20}; do
+    [ -f "$TEST_SKILL_DIR/run/watch.$fallback_sid.pid" ] && break
+    sleep 0.1
+  done
+  [ -f "$TEST_SKILL_DIR/run/watch.$fallback_sid.pid" ]
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" \
+    bash "$SCRIPTS/session-end.sh" codex "$TEST_PROJECT" <<<'{"sessionId":"hook-thread-123"}'
+  [ "$status" -eq 0 ]
+  for _ in {1..30}; do
+    ! kill -0 "$watcher_pid" 2>/dev/null && break
+    sleep 0.1
+  done
+  ! kill -0 "$watcher_pid" 2>/dev/null
+  [ ! -f "$TEST_SKILL_DIR/run/watch.$fallback_sid.pid" ]
+  [ ! -f "$TEST_SKILL_DIR/run/cc-instance.$agent_pid" ]
+  trap - EXIT
+}
+
+@test "check-inbox.sh for codex defers to a manual fallback watcher when hook id differs" {
+  skip_on_windows "watcher liveness under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  bash "$SCRIPTS/config.sh" set delivery.turn.check_interval 0 >/dev/null
+  local agent_pid="$$"
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  local fallback_sid="$output"
+
+  sleep 60 &
+  local watcher_pid=$!
+  trap "kill $watcher_pid 2>/dev/null || true" EXIT
+  printf '%s\n' "$watcher_pid" > "$TEST_SKILL_DIR/run/watch.$fallback_sid.pid"
+  bash "$SCRIPTS/send.sh" team bob alice "pending fallback message" >/dev/null
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" \
+    bash "$SCRIPTS/check-inbox.sh" codex "$TEST_PROJECT" <<<'{"sessionId":"hook-thread-123"}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+  kill -0 "$watcher_pid"
+
+  kill "$watcher_pid" 2>/dev/null || true
+  trap - EXIT
+}
+
 @test "session-start.sh for codex resolves thread id from rollout when CODEX_THREAD_ID is unset" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
@@ -1751,6 +1927,7 @@ EOF
   run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [ "$output" = "agmsg-codex-4242.4242" ]
+  [ "$(cat "$TEST_SKILL_DIR/run/cc-instance.4242")" = "agmsg-codex-4242.4242" ]
   local sid="$output"
 
   run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 bash "$SCRIPTS/monitor-command.sh" --session-id "$sid" codex "$TEST_PROJECT" alice
@@ -1803,7 +1980,7 @@ trap 'printf bridge-term > "$AGMSG_TERM_LOG"; exit 0' TERM
 while :; do sleep 1; done
 EOF
   chmod +x "$bridge_fake"
-  AGMSG_TERM_LOG="$bridge_term" "$bridge_fake" &
+  AGMSG_TERM_LOG="$bridge_term" "$bridge_fake" --project "$TEST_PROJECT" --type codex --team team --name alice &
   local bridge_pid=$!
   trap "kill $bridge_pid 2>/dev/null || true" EXIT
   printf '%s\n' "$bridge_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
@@ -1816,7 +1993,7 @@ trap 'printf server-term > "$AGMSG_TERM_LOG"; exit 0' TERM
 while :; do sleep 1; done
 EOF
   chmod +x "$server_fake"
-  AGMSG_TERM_LOG="$server_term" "$server_fake" &
+  AGMSG_TERM_LOG="$server_term" "$server_fake" app-server --listen &
   local server_pid=$!
   trap "kill $bridge_pid $server_pid 2>/dev/null || true" EXIT
   source "$SCRIPTS/lib/hash.sh"

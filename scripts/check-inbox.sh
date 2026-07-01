@@ -59,13 +59,34 @@ if [ -z "$SESSION_ID" ]; then
     grok-build) SESSION_ID="${GROK_SESSION_ID:-}" ;;
   esac
 fi
-if [ -n "$SESSION_ID" ]; then
+AGENT_PID=$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)
+INSTANCE_ID=""
+if [ -n "$AGENT_PID" ]; then
+  STATE_FILE="$SKILL_DIR/run/cc-instance.$AGENT_PID"
+  if [ -f "$STATE_FILE" ]; then
+    STATE_ID=$(head -1 "$STATE_FILE" 2>/dev/null || true)
+    if [ -n "$STATE_ID" ]; then
+      if agmsg_instance_is_composite "$STATE_ID" && [ "${STATE_ID##*.}" != "$AGENT_PID" ]; then
+        STATE_ID=""
+      fi
+      INSTANCE_ID="$STATE_ID"
+    fi
+  fi
+fi
+if [ -n "$SESSION_ID" ] || [ -n "$INSTANCE_ID" ]; then
   # The monitor watcher keys its pidfile (and its actas owner, below) on the
   # per-process instance id (#93), not the bare session_id. Normalize to the
   # same token so this Stop-hook defers to a live watcher in `both` mode instead
   # of double-delivering.
-  SESSION_ID="$(agmsg_normalize_instance_id "$SESSION_ID" "$TYPE")"
-  PIDFILE="$SKILL_DIR/run/watch.$SESSION_ID.pid"
+  if [ -z "$INSTANCE_ID" ]; then
+    if [ -n "$AGENT_PID" ]; then
+      INSTANCE_ID="$(agmsg_instance_id_from_pid "$SESSION_ID" "$AGENT_PID")"
+    else
+      INSTANCE_ID="$(agmsg_normalize_instance_id "$SESSION_ID" "$TYPE")"
+    fi
+  fi
+  SESSION_ID="$INSTANCE_ID"
+  PIDFILE="$SKILL_DIR/run/watch.$INSTANCE_ID.pid"
   if [ -f "$PIDFILE" ]; then
     WATCH_PID=$(cat "$PIDFILE" 2>/dev/null || true)
     if [ -n "$WATCH_PID" ] && kill -0 "$WATCH_PID" 2>/dev/null; then

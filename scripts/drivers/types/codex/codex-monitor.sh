@@ -113,6 +113,14 @@ port_alive() {  # $1 = port; succeeds if something is accepting on 127.0.0.1:$1
   (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
 }
 
+is_codex_app_server_cmdline() {
+  local cmd="$1"
+  [ -n "$cmd" ] || return 1
+  printf '%s' "$cmd" | grep -Fq -- "app-server" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "--listen" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "$REAL_CODEX" || return 1
+}
+
 PORT=""
 if [ -f "$PORT_FILE" ] && [ -f "$SERVER_PID" ]; then
   existing_port="$(cat "$PORT_FILE" 2>/dev/null || true)"
@@ -128,8 +136,7 @@ if [ -f "$PORT_FILE" ] && [ -f "$SERVER_PID" ]; then
     # recorded port happens to answer via something else. Only reuse/kill when the
     # cmdline proves it.
     existing_cmd="$(compat_get_cmdline "$existing_pid" 2>/dev/null || true)"
-    case "$existing_cmd" in
-      *codex*app-server*)
+    if is_codex_app_server_cmdline "$existing_cmd"; then
         # ...and only when it was launched by THIS codex build. A codex upgrade
         # leaves the old app-server running on the recorded port; the port still
         # answers, but a new TUI's --remote can't speak to the old server and dies
@@ -142,14 +149,12 @@ if [ -f "$PORT_FILE" ] && [ -f "$SERVER_PID" ]; then
           kill "$existing_pid" 2>/dev/null || true
           rm -f "$PORT_FILE" "$SERVER_PID" "$VERSION_FILE"
         fi
-        ;;
-      *)
+    else
         # Can't confirm it's our app-server (pid reuse / a foreign listener on the
         # recorded port): do NOT kill it. Drop the stale artifacts and start a
         # fresh server of our own.
         rm -f "$PORT_FILE" "$SERVER_PID" "$VERSION_FILE"
-        ;;
-    esac
+    fi
   fi
 fi
 

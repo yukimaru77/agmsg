@@ -7,6 +7,14 @@
 # Args: on_enable <mode> <type> <project>.
 
 agmsg_delivery_on_enable() {
+  if [ "${AGMSG_CODEX_BRIDGE:-}" != "1" ]; then
+    stop_codex_bridge "$3" >/dev/null 2>&1 || true
+  fi
   echo "Future sessions: SessionStart hook will auto-launch the watcher."
   emit_monitor_directive "$2" "$3"
+}
+
+agmsg_delivery_on_disable() {
+  kill_all_watchers "$2" "$1" >/dev/null 2>&1 || true
+  stop_codex_bridge "$2" >/dev/null 2>&1 || true
 }

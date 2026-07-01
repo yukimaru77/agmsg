@@ -216,7 +216,11 @@ if [ -n "$AGENT_PID" ]; then
       if [ -f "$prev_pidfile" ]; then
         prev_pid=$(cat "$prev_pidfile" 2>/dev/null || true)
         if [ -n "$prev_pid" ] && kill -0 "$prev_pid" 2>/dev/null; then
-          kill "$prev_pid" 2>/dev/null || true
+          prev_cmd=$(compat_get_cmdline "$prev_pid" 2>/dev/null || true)
+          case "$prev_cmd" in
+            *"$SKILL_DIR/scripts/watch.sh"*) kill "$prev_pid" 2>/dev/null || true ;;
+            *) rm -f "$prev_pidfile" ;;
+          esac
         fi
       fi
     fi

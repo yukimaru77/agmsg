@@ -133,37 +133,39 @@ If argument starts with "actas" followed by an agent name (e.g. "actas alice"):
 1. Parse the new role name.
 2. Run `~/.agents/skills/__SKILL_NAME__/scripts/identities.sh "$(pwd)" codex` to see whether the role is already registered for this (project, type).
 3. If the name does not appear in the output, join under the existing team. Read TEAMS from the in-session whoami state (it may be a single team or comma-separated). For a single team, run `~/.agents/skills/__SKILL_NAME__/scripts/join.sh <team> <name> codex "$(pwd)"`. For multiple teams, ask the user which team to join the new role into.
-4. **Pre-flight claim** the actas exclusivity lock so this role isn't already owned by another live session: `~/.agents/skills/__SKILL_NAME__/scripts/actas-claim.sh "$(pwd)" codex <name> "$CODEX_THREAD_ID"`. Read the `status=` line of the output:
-   - `status=ok ...`: proceed to step 5.
+4. **Resolve this session's agmsg instance id**: `AGMSG_SESSION_ID="$(~/.agents/skills/__SKILL_NAME__/scripts/session-id.sh codex "$(pwd)")"`. Use this exact value for both the claim and the replacement Monitor command below.
+5. **Pre-flight claim** the actas exclusivity lock so this role isn't already owned by another live session: `~/.agents/skills/__SKILL_NAME__/scripts/actas-claim.sh "$(pwd)" codex <name> "$AGMSG_SESSION_ID"`. Read the `status=` line of the output:
+   - `status=ok ...`: proceed to step 6.
    - `status=held team=<team> owner=<sid>`: another live session currently owns `<name>` in `<team>`. Tell the user: "Cannot actas as `<name>` — it is held by session `<sid>` in team `<team>`. Run `$__SKILL_NAME__ drop <name>` in that session first, then retry." Then abort — do NOT touch the running Monitor.
    - `status=not_registered`: shouldn't happen if step 3 ran; treat as an error.
-5. **Switch receive too — exclusive role mode.**
+6. **Switch receive too — exclusive role mode.**
    a. Use Codex's Monitor list tool. Find any task whose description begins with "agmsg inbox stream".
    b. **If a matching task is found**: stop it with Codex's Monitor stop tool.
    c. **If no matching task is found**: skip the stop step entirely.
    d. Invoke a fresh Monitor regardless of whether step b or c applied:
-      - first run: `~/.agents/skills/__SKILL_NAME__/scripts/monitor-command.sh codex "$(pwd)" <name>`
+      - first run: `~/.agents/skills/__SKILL_NAME__/scripts/monitor-command.sh --session-id "$AGMSG_SESSION_ID" codex "$(pwd)" <name>`
       - command: `<printed command>`
       - description: `agmsg inbox stream (acting as <name>)`
       - persistent: true
    Pass the printed command verbatim; do not pass `$CODEX_THREAD_ID` through Monitor.
    The 4th argument to `watch.sh` restricts the subscription to messages addressed to `<name>` only — other roles' inbound messages stop reaching this session until another `actas` or session end.
-6. Set the session's active FROM to `<name>` — use `<name>` in every `send.sh` call for the rest of this session.
-7. Tell the user: "Now acting as `<name>`. Sends use `<name>` as from; receive restricted to `<name>` only."
+7. Set the session's active FROM to `<name>` — use `<name>` in every `send.sh` call for the rest of this session.
+8. Tell the user: "Now acting as `<name>`. Sends use `<name>` as from; receive restricted to `<name>` only."
 
 If argument starts with "drop" followed by an agent name (e.g. "drop alice"):
 1. Parse the role name.
-2. Run `~/.agents/skills/__SKILL_NAME__/scripts/reset.sh "$(pwd)" codex <name> "$CODEX_THREAD_ID"` to remove only that role's registration for this project. If the role has no other registrations left, reset.sh also drops it from the team config. The 4th argument releases any actas exclusivity locks this session held on the role so peers can pick it up immediately.
-3. If the session's active FROM was `<name>`, clear that state. Then:
+2. Resolve this session's agmsg instance id: `AGMSG_SESSION_ID="$(~/.agents/skills/__SKILL_NAME__/scripts/session-id.sh codex "$(pwd)")"`.
+3. Run `~/.agents/skills/__SKILL_NAME__/scripts/reset.sh "$(pwd)" codex <name> "$AGMSG_SESSION_ID"` to remove only that role's registration for this project. If the role has no other registrations left, reset.sh also drops it from the team config. The 4th argument releases any actas exclusivity locks this session held on the role so peers can pick it up immediately.
+4. If the session's active FROM was `<name>`, clear that state. Then:
    a. Use Codex's Monitor list tool. Find any task whose description begins with "agmsg inbox stream".
    b. **If a matching task is found**: stop it with Codex's Monitor stop tool.
    c. **If no matching task is found**: skip the stop step.
    d. Invoke a fresh Monitor with the default subscription:
-      - first run: `~/.agents/skills/__SKILL_NAME__/scripts/monitor-command.sh codex "$(pwd)"`
+      - first run: `~/.agents/skills/__SKILL_NAME__/scripts/monitor-command.sh --session-id "$AGMSG_SESSION_ID" codex "$(pwd)"`
       - command: `<printed command>`
       - description: `agmsg inbox stream`
       - persistent: true
-4. Tell the user: "Dropped role `<name>` from this project."
+5. Tell the user: "Dropped role `<name>` from this project."
 
 If argument starts with "spawn" (e.g. "spawn claude-code alice", "spawn codex reviewer --window"):
 1. Parse `<type>` (must be `claude-code` or `codex`), `<name>`, and any options (`--project`, `--team`, `--window`, `--split h|v`, `--terminal`, `--no-wait`, `--ready-timeout <secs>`).

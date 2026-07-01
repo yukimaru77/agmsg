@@ -49,6 +49,8 @@ source "$SCRIPT_DIR/lib/storage.sh"
 source "$SCRIPT_DIR/lib/actas-lock.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/resolve-project.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/type-registry.sh"
 
 # Resolve a session id when the launcher could not bake one in (empty first arg).
 # Grok Build's `monitor` tool runs the watcher with $GROK_SESSION_ID unset, so
@@ -216,7 +218,8 @@ if [ -n "$PAIRS" ]; then
   fi
   if [ -n "$held" ]; then
     echo "agmsg watch: cannot claim (held by other sessions): $held" >&2
-    echo "agmsg watch: run \`/agmsg drop <name>\` in the owning session, then retry." >&2
+    cmd_prefix="$(agmsg_type_get "$AGENT_TYPE" command_prefix "/" 2>/dev/null || printf '/')"
+    printf 'agmsg watch: run `%sagmsg drop <name>` in the owning session, then retry.\n' "$cmd_prefix" >&2
     exit 1
   fi
 fi

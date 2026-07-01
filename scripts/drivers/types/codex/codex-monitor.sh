@@ -191,11 +191,11 @@ if ! port_alive "$PORT"; then
 fi
 SOCKET_URL="ws://127.0.0.1:$PORT"
 
-"$SCRIPT_DIR/../../../delivery.sh" set monitor codex "$PROJECT" >/dev/null
-
 export AGMSG_CODEX_BRIDGE=1
 export AGMSG_CODEX_BRIDGE_APP_SERVER="$SOCKET_URL"
 export AGMSG_CODEX_BRIDGE_LAUNCHER=1
+
+"$SCRIPT_DIR/../../../delivery.sh" set monitor codex "$PROJECT" >/dev/null
 
 launcher_cmd="${AGMSG_CODEX_BRIDGE_LAUNCHER_CMD:-$SCRIPT_DIR/codex-bridge-launcher.sh}"
 "$launcher_cmd" codex "$PROJECT" "$SOCKET_URL" "$$" >/dev/null 2>&1 &

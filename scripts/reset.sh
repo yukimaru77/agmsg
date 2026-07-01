@@ -26,6 +26,8 @@ source "$SCRIPT_DIR/lib/resolve-project.sh"
 source "$SCRIPT_DIR/lib/storage.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/registry-lock.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/validate.sh"
 
 # Resolve the session's real project root (see #92) so a drop issued from a
 # subdir/worktree clears the registration on the project the session lives in.
@@ -52,6 +54,8 @@ if [ -z "$TARGET_AGENT" ]; then
     exit 1
   fi
 fi
+
+agmsg_validate_agent_name "$TARGET_AGENT" || exit 1
 
 if [ ! -d "$TEAMS_DIR" ]; then
   echo "No team registrations found."

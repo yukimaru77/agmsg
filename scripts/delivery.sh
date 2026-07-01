@@ -80,6 +80,20 @@ resolve_hooks_file() {
   echo "$project/$rel"
 }
 
+shell_quote_command() {
+  local out="" arg
+  for arg in "$@"; do
+    if [ -z "$out" ]; then
+      printf -v out '%q' "$arg"
+    else
+      local quoted
+      printf -v quoted '%q' "$arg"
+      out="$out $quoted"
+    fi
+  done
+  printf '%s' "$out"
+}
+
 # Default delivery behavior: JSON event-hooks (SessionStart / SessionEnd / Stop)
 # written into the type's hooks_file. Used by claude-code and codex. Rule-file
 # types override this by defining agmsg_delivery_apply in scripts/drivers/types/<name>/_delivery.sh.
@@ -117,19 +131,22 @@ agmsg_delivery_apply_default() {
   # 2) Re-add what this mode wants.
   case "$mode" in
     monitor)
-      local ss="'$SKILL_DIR/scripts/session-start.sh' '$type' '$project'"
-      local se="'$SKILL_DIR/scripts/session-end.sh'   '$type' '$project'"
+      local ss se
+      ss="$(shell_quote_command "$SKILL_DIR/scripts/session-start.sh" "$type" "$project")"
+      se="$(shell_quote_command "$SKILL_DIR/scripts/session-end.sh" "$type" "$project")"
       add_event_entry_file "$tmp_state" "SessionStart" "$ss" "$ww"
       add_event_entry_file "$tmp_state" "SessionEnd"   "$se" "$ww"
       ;;
     turn)
-      local cmd="'$SKILL_DIR/scripts/check-inbox.sh' '$type' '$project'"
+      local cmd
+      cmd="$(shell_quote_command "$SKILL_DIR/scripts/check-inbox.sh" "$type" "$project")"
       add_event_entry_file "$tmp_state" "Stop" "$cmd" "$ww"
       ;;
     both)
-      local ss="'$SKILL_DIR/scripts/session-start.sh' '$type' '$project'"
-      local se="'$SKILL_DIR/scripts/session-end.sh'   '$type' '$project'"
-      local st="'$SKILL_DIR/scripts/check-inbox.sh'   '$type' '$project'"
+      local ss se st
+      ss="$(shell_quote_command "$SKILL_DIR/scripts/session-start.sh" "$type" "$project")"
+      se="$(shell_quote_command "$SKILL_DIR/scripts/session-end.sh" "$type" "$project")"
+      st="$(shell_quote_command "$SKILL_DIR/scripts/check-inbox.sh" "$type" "$project")"
       add_event_entry_file "$tmp_state" "SessionStart" "$ss" "$ww"
       add_event_entry_file "$tmp_state" "SessionEnd"   "$se" "$ww"
       add_event_entry_file "$tmp_state" "Stop"         "$st" "$ww"

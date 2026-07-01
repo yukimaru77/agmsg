@@ -240,6 +240,39 @@ settings_file() {
   [ "$3" = "$sp" ]
 }
 
+@test "delivery hook commands round-trip through a shell for apostrophe project paths" {
+  local sp="$TEST_PROJECT/Mobile Documents/o'brien hook"
+  mkdir -p "$sp"
+
+  run env AGMSG_RESOLVE_PROJECT=0 bash "$SCRIPTS/delivery.sh" set monitor codex "$sp"
+  [ "$status" -eq 0 ]
+  local codex_hook="$sp/.codex/hooks.json"
+  [ -f "$codex_hook" ]
+  local cmdline
+  cmdline=$(sqlite_mem "SELECT json_extract(readfile('$(rf "$codex_hook")'), '\$.hooks.SessionStart[0].hooks[0].command');")
+  [ -n "$cmdline" ]
+  eval "set -- $cmdline"
+  [ "$1" = "$SCRIPTS/session-start.sh" ]
+  [ "$2" = "codex" ]
+  [ "$3" = "$sp" ]
+  cmdline=$(sqlite_mem "SELECT json_extract(readfile('$(rf "$codex_hook")'), '\$.hooks.SessionEnd[0].hooks[0].command');")
+  eval "set -- $cmdline"
+  [ "$1" = "$SCRIPTS/session-end.sh" ]
+  [ "$2" = "codex" ]
+  [ "$3" = "$sp" ]
+
+  run env AGMSG_RESOLVE_PROJECT=0 bash "$SCRIPTS/delivery.sh" set turn claude-code "$sp"
+  [ "$status" -eq 0 ]
+  local claude_hook="$sp/.claude/settings.local.json"
+  [ -f "$claude_hook" ]
+  cmdline=$(sqlite_mem "SELECT json_extract(readfile('$(rf "$claude_hook")'), '\$.hooks.Stop[0].hooks[0].command');")
+  [ -n "$cmdline" ]
+  eval "set -- $cmdline"
+  [ "$1" = "$SCRIPTS/check-inbox.sh" ]
+  [ "$2" = "claude-code" ]
+  [ "$3" = "$sp" ]
+}
+
 @test "delivery set turn: emits AGMSG-DIRECTIVE to stop any running watcher" {
   run bash "$SCRIPTS/delivery.sh" set turn claude-code "$TEST_PROJECT"
   [[ "$output" =~ "AGMSG-DIRECTIVE" ]]
@@ -605,6 +638,29 @@ JSON
   echo '{"session_id":"x"}' | bash "$SCRIPTS/session-start.sh" claude-code "$TEST_PROJECT" >/dev/null
   [ -f "$TEST_SKILL_DIR/run/watch.live-session.pid" ]
   kill "$alive_pid" 2>/dev/null || true
+}
+
+@test "session-start.sh does not kill stale previous pidfile when pid is not watch.sh" {
+  skip_on_windows "process cmdline inspection under Git Bash (#182)"
+  mkdir -p "$TEST_SKILL_DIR/teams/myteam"
+  cat > "$TEST_SKILL_DIR/teams/myteam/config.json" <<JSON
+{"name":"myteam","agents":{"alice":{"registrations":[{"type":"claude-code","project":"$TEST_PROJECT"}]}}}
+JSON
+  bash "$SCRIPTS/delivery.sh" set monitor claude-code "$TEST_PROJECT" >/dev/null
+  mkdir -p "$TEST_SKILL_DIR/run"
+
+  sleep 30 &
+  local unrelated_pid=$!
+  trap "kill $unrelated_pid 2>/dev/null || true" EXIT
+  echo "$unrelated_pid" > "$TEST_SKILL_DIR/run/watch.previous-session.pid"
+  echo "previous-session" > "$TEST_SKILL_DIR/run/cc-instance.$$"
+
+  run env AGMSG_AGENT_PID="$$" bash "$SCRIPTS/session-start.sh" claude-code "$TEST_PROJECT" <<<'{"session_id":"next-session"}'
+  [ "$status" -eq 0 ]
+  kill -0 "$unrelated_pid" 2>/dev/null
+  [ ! -f "$TEST_SKILL_DIR/run/watch.previous-session.pid" ]
+  kill "$unrelated_pid" 2>/dev/null || true
+  trap - EXIT
 }
 
 # --- emit_monitor_directive idempotency ---
@@ -1124,7 +1180,10 @@ skip_if_no_special_fs() {
   local cmd
   cmd=$(sqlite_mem "SELECT json_extract(readfile('$hfq'), '\$.hooks.Stop[0].hooks[0].command');")
   [[ "$cmd" == *"check-inbox.sh"* ]]
-  [[ "$cmd" == *"o'brien \"x\""* ]]
+  eval "set -- $cmd"
+  [ "$1" = "$SCRIPTS/check-inbox.sh" ]
+  [ "$2" = "claude-code" ]
+  [ "$3" = "$proj" ]
 }
 
 @test "delivery set turn: project path with quotes yields valid JSON + commandWindows (codex) (#134)" {
@@ -1158,7 +1217,10 @@ skip_if_no_special_fs() {
   [ "$(sqlite_mem "SELECT json_valid(readfile('$hfq'));")" = "1" ]
   local cmd
   cmd=$(sqlite_mem "SELECT json_extract(readfile('$hfq'), '\$.hooks.Stop[0].hooks[0].command');")
-  [[ "$cmd" == *'a\b'* ]]
+  eval "set -- $cmd"
+  [ "$1" = "$SCRIPTS/check-inbox.sh" ]
+  [ "$2" = "claude-code" ]
+  [ "$3" = "$proj" ]
 }
 
 @test "delivery set monitor: existing settings with single-quoted hook commands stays valid JSON (#134)" {
@@ -1460,6 +1522,65 @@ EOF
   grep -q "session-start.sh" "$hook_file"
 }
 
+@test "delivery set monitor (codex): stops legacy bridge and app-server artifacts" {
+  skip_on_windows "process teardown under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  mkdir -p "$TEST_SKILL_DIR/run"
+
+  local bridge_term="$TEST_SKILL_DIR/bridge.term"
+  local bridge_fake="$TEST_SKILL_DIR/codex-bridge-fake"
+  cat >"$bridge_fake" <<'EOF'
+#!/usr/bin/env bash
+trap 'printf bridge-term > "$AGMSG_TERM_LOG"; exit 0' TERM
+while :; do sleep 1; done
+EOF
+  chmod +x "$bridge_fake"
+  AGMSG_TERM_LOG="$bridge_term" "$bridge_fake" &
+  local bridge_pid=$!
+  trap "kill $bridge_pid 2>/dev/null || true" EXIT
+  printf '%s\n' "$bridge_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
+  : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta"
+  : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.log"
+  : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver"
+
+  local server_term="$TEST_SKILL_DIR/server.term"
+  local server_fake="$TEST_SKILL_DIR/codex-app-server-fake"
+  cat >"$server_fake" <<'EOF'
+#!/usr/bin/env bash
+trap 'printf server-term > "$AGMSG_TERM_LOG"; exit 0' TERM
+while :; do sleep 1; done
+EOF
+  chmod +x "$server_fake"
+  AGMSG_TERM_LOG="$server_term" "$server_fake" &
+  local server_pid=$!
+  trap "kill $bridge_pid $server_pid 2>/dev/null || true" EXIT
+  source "$SCRIPTS/lib/hash.sh"
+  local project_hash
+  project_hash="$(printf '%s' "$TEST_PROJECT" | agmsg_sha1)"
+  printf '%s\n' "$server_pid" > "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.pid"
+  : > "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.port"
+  : > "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.version"
+  : > "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.log"
+
+  run bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  for _ in {1..20}; do
+    [ -f "$bridge_term" ] && [ -f "$server_term" ] && break
+    sleep 0.1
+  done
+  [ -f "$bridge_term" ]
+  [ -f "$server_term" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.log" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.pid" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.port" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.version" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.log" ]
+  trap - EXIT
+}
+
 @test "delivery set both (codex): installs monitor and turn fallback hooks" {
   run bash "$SCRIPTS/delivery.sh" set both codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
@@ -1517,6 +1638,15 @@ EOF
   trap - EXIT
 }
 
+@test "session-start.sh for codex uses hook sessionId without CODEX_THREAD_ID" {
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  run env -u CODEX_THREAD_ID bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" <<<'{"sessionId":"hook-thread-123"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AGMSG monitor mode"* ]]
+  [[ "$output" == *"hook-thread-123"* ]]
+  [[ "$output" != *'$CODEX_THREAD_ID'* ]]
+}
+
 @test "session-start.sh for codex resolves thread id from rollout when CODEX_THREAD_ID is unset" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
@@ -1570,6 +1700,26 @@ EOF
   [[ "$output" != *'$CODEX_THREAD_ID'* ]]
 }
 
+@test "session-id and monitor-command (codex): share fallback id when CODEX_THREAD_ID is unset" {
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "agmsg-codex-4242.4242" ]
+  local sid="$output"
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 bash "$SCRIPTS/monitor-command.sh" --session-id "$sid" codex "$TEST_PROJECT" alice
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" == *"agmsg-codex-4242.4242"* ]]
+  [[ "$output" == *" alice"* ]]
+  [[ "$output" != *'$CODEX_THREAD_ID'* ]]
+}
+
+@test "monitor-command rejects unsupported monitor types" {
+  run bash "$SCRIPTS/monitor-command.sh" opencode "$TEST_PROJECT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unsupported monitor type: opencode"* ]]
+}
+
 @test "delivery set off (codex): stops project watcher and emits stop directive" {
   skip_on_windows "watcher process kill under Git Bash (#182)"
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
@@ -1590,6 +1740,55 @@ EOF
   [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
   ! kill -0 "$wpid" 2>/dev/null
   [ ! -f "$TEST_SKILL_DIR/run/watch.test-session.pid" ]
+  trap - EXIT
+}
+
+@test "delivery set off (codex): stops legacy bridge and app-server artifacts" {
+  skip_on_windows "process teardown under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  mkdir -p "$TEST_SKILL_DIR/run"
+
+  local bridge_term="$TEST_SKILL_DIR/bridge-off.term"
+  local bridge_fake="$TEST_SKILL_DIR/codex-bridge-fake-off"
+  cat >"$bridge_fake" <<'EOF'
+#!/usr/bin/env bash
+trap 'printf bridge-term > "$AGMSG_TERM_LOG"; exit 0' TERM
+while :; do sleep 1; done
+EOF
+  chmod +x "$bridge_fake"
+  AGMSG_TERM_LOG="$bridge_term" "$bridge_fake" &
+  local bridge_pid=$!
+  trap "kill $bridge_pid 2>/dev/null || true" EXIT
+  printf '%s\n' "$bridge_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
+
+  local server_term="$TEST_SKILL_DIR/server-off.term"
+  local server_fake="$TEST_SKILL_DIR/codex-app-server-fake-off"
+  cat >"$server_fake" <<'EOF'
+#!/usr/bin/env bash
+trap 'printf server-term > "$AGMSG_TERM_LOG"; exit 0' TERM
+while :; do sleep 1; done
+EOF
+  chmod +x "$server_fake"
+  AGMSG_TERM_LOG="$server_term" "$server_fake" &
+  local server_pid=$!
+  trap "kill $bridge_pid $server_pid 2>/dev/null || true" EXIT
+  source "$SCRIPTS/lib/hash.sh"
+  local project_hash
+  project_hash="$(printf '%s' "$TEST_PROJECT" | agmsg_sha1)"
+  printf '%s\n' "$server_pid" > "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.pid"
+  : > "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.port"
+
+  run bash "$SCRIPTS/delivery.sh" set off codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  for _ in {1..20}; do
+    [ -f "$bridge_term" ] && [ -f "$server_term" ] && break
+    sleep 0.1
+  done
+  [ -f "$bridge_term" ]
+  [ -f "$server_term" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.pid" ]
+  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$project_hash.port" ]
   trap - EXIT
 }
 

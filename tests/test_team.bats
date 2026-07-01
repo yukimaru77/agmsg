@@ -250,6 +250,22 @@ teardown() {
   [[ "$output" =~ "agent=alice" ]]
 }
 
+@test "reset: handles apostrophe in project path" {
+  local proj="$TEST_SKILL_DIR/pro'j"
+  mkdir -p "$proj"
+  bash "$SCRIPTS/join.sh" myteam alice claude-code "$proj"
+  bash "$SCRIPTS/join.sh" myteam alice claude-code /tmp/proj-b
+
+  run bash "$SCRIPTS/reset.sh" "$proj" claude-code alice
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "removed 1 registration" ]]
+
+  run bash "$SCRIPTS/whoami.sh" "$proj" claude-code
+  [[ "$output" =~ "suggest=true" ]]
+  run bash "$SCRIPTS/whoami.sh" /tmp/proj-b claude-code
+  [[ "$output" =~ "agent=alice" ]]
+}
+
 @test "reset: removes agent when last registration is cleared" {
   bash "$SCRIPTS/join.sh" myteam alice claude-code /tmp/proj-a
   run bash "$SCRIPTS/reset.sh" /tmp/proj-a claude-code alice

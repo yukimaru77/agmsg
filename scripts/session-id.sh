@@ -32,6 +32,15 @@ if [ "$(agmsg_type_get "$TYPE" monitor 2>/dev/null || true)" != "yes" ]; then
 fi
 
 session_id="${AGMSG_SESSION_ID:-}"
+agent_pid="$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)"
+
+if [ -z "$session_id" ] && [ -n "$agent_pid" ]; then
+  state_file="$SKILL_DIR/run/cc-instance.$agent_pid"
+  if [ -f "$state_file" ]; then
+    session_id="$(head -1 "$state_file" 2>/dev/null || true)"
+  fi
+fi
+
 if [ -z "$session_id" ]; then
   case "$TYPE" in
     claude-code) session_id="${CLAUDE_CODE_SESSION_ID:-}" ;;
@@ -40,7 +49,6 @@ if [ -z "$session_id" ]; then
 fi
 
 if [ -z "$session_id" ]; then
-  agent_pid="$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)"
   if [ -n "$agent_pid" ]; then
     session_id="agmsg-$TYPE-$agent_pid"
   else

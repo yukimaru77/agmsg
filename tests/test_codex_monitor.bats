@@ -168,3 +168,39 @@ while True:
 
   kill "$foreign_pid" 2>/dev/null || true
 }
+
+@test "codex-bridge-launcher: never kills a non-bridge process from a stale pidfile" {
+  skip_on_windows "process command-line inspection under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+
+  sleep 60 &
+  local unrelated_pid=$!
+  sleep 2 &
+  local parent_pid=$!
+  trap "kill $unrelated_pid $parent_pid 2>/dev/null || true" EXIT
+
+  local pidfile="$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
+  local appserver_file="$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver"
+  mkdir -p "$TEST_SKILL_DIR/run"
+  printf '%s\n' "$unrelated_pid" > "$pidfile"
+  printf '%s' "ws://127.0.0.1:1" > "$appserver_file"
+
+  local fake_bridge="$TEST_PROJECT/codex-bridge-test-wrapper"
+  local fake_log="$TEST_PROJECT/bridge-launcher.log"
+  cat > "$fake_bridge" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AGMSG_FAKE_BRIDGE_LOG"
+EOF
+  chmod +x "$fake_bridge"
+
+  run env AGMSG_CODEX_BRIDGE_CMD="$fake_bridge" AGMSG_FAKE_BRIDGE_LOG="$fake_log" \
+    bash "$TYPES/codex/codex-bridge-launcher.sh" codex "$TEST_PROJECT" "ws://127.0.0.1:2" "$parent_pid"
+  [ "$status" -eq 0 ]
+  kill -0 "$unrelated_pid"
+  [ ! -f "$pidfile" ]
+  [ -f "$fake_log" ]
+  grep -q -- "--app-server ws://127.0.0.1:2" "$fake_log"
+
+  kill "$unrelated_pid" 2>/dev/null || true
+  trap - EXIT
+}

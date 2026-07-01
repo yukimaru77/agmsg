@@ -56,6 +56,8 @@ if [ -z "$TARGET_AGENT" ]; then
 fi
 
 agmsg_validate_agent_name "$TARGET_AGENT" || exit 1
+AGENT_TYPE_ESCAPED=$(printf '%s' "$AGENT_TYPE" | sed "s/'/''/g")
+PROJECT_PATH_ESCAPED=$(printf '%s' "$PROJECT_PATH" | sed "s/'/''/g")
 
 if [ ! -d "$TEAMS_DIR" ]; then
   echo "No team registrations found."
@@ -80,10 +82,13 @@ for TEAM_CONFIG in "$TEAMS_DIR"/*/config.json; do
     LOCK_FAILED=1
     continue
   fi
-  CONFIG_ESCAPED=$(sed "s/'/''/g" "$TEAM_CONFIG")
+  CONFIG_SQL=$(agmsg_sql_readfile_path "$TEAM_CONFIG")
 
-  AGENT_JSON=$(agmsg_sqlite_mem ".param set :json '$CONFIG_ESCAPED'" \
-    "SELECT json_extract(:json, '$.agents.$TARGET_AGENT');")
+  AGENT_JSON=$(agmsg_sqlite_mem "
+    WITH cfg AS (SELECT CAST(readfile('$CONFIG_SQL') AS TEXT) AS json)
+    SELECT json_extract(cfg.json, '\$.agents.$TARGET_AGENT')
+    FROM cfg;
+  ")
   if [ -z "$AGENT_JSON" ] || [ "$AGENT_JSON" = "null" ]; then
     agmsg_lock_release
     continue
@@ -109,8 +114,8 @@ for TEAM_CONFIG in "$TEAMS_DIR"/*/config.json; do
   MATCH_COUNT=$(agmsg_sqlite_mem "
     SELECT count(*)
     FROM json_each(json_extract('$NORMALIZED_ESCAPED', '\$.registrations'))
-    WHERE json_extract(value, '\$.type') = '$AGENT_TYPE'
-      AND json_extract(value, '\$.project') = '$PROJECT_PATH';
+    WHERE json_extract(value, '\$.type') = '$AGENT_TYPE_ESCAPED'
+      AND json_extract(value, '\$.project') = '$PROJECT_PATH_ESCAPED';
   ")
   if [ "$MATCH_COUNT" -eq 0 ]; then
     agmsg_lock_release
@@ -124,8 +129,8 @@ for TEAM_CONFIG in "$TEAMS_DIR"/*/config.json; do
         SELECT json_group_array(json(value))
         FROM json_each(json_extract('$NORMALIZED_ESCAPED', '\$.registrations'))
         WHERE NOT (
-          json_extract(value, '\$.type') = '$AGENT_TYPE'
-          AND json_extract(value, '\$.project') = '$PROJECT_PATH'
+          json_extract(value, '\$.type') = '$AGENT_TYPE_ESCAPED'
+          AND json_extract(value, '\$.project') = '$PROJECT_PATH_ESCAPED'
         )
       ), json('[]'))
     );
@@ -136,11 +141,17 @@ for TEAM_CONFIG in "$TEAMS_DIR"/*/config.json; do
   ")
 
   if [ "$REMAINING" -eq 0 ]; then
-    UPDATED=$(agmsg_sqlite_mem ".param set :json '$CONFIG_ESCAPED'" \
-      "SELECT json_remove(:json, '$.agents.$TARGET_AGENT');")
+    UPDATED=$(agmsg_sqlite_mem "
+      WITH cfg AS (SELECT CAST(readfile('$CONFIG_SQL') AS TEXT) AS json)
+      SELECT json_remove(cfg.json, '\$.agents.$TARGET_AGENT')
+      FROM cfg;
+    ")
   else
-    UPDATED=$(agmsg_sqlite_mem ".param set :json '$CONFIG_ESCAPED'" \
-      "SELECT json_set(:json, '$.agents.$TARGET_AGENT', json('$FILTERED_ESCAPED'));")
+    UPDATED=$(agmsg_sqlite_mem "
+      WITH cfg AS (SELECT CAST(readfile('$CONFIG_SQL') AS TEXT) AS json)
+      SELECT json_set(cfg.json, '\$.agents.$TARGET_AGENT', json('$FILTERED_ESCAPED'))
+      FROM cfg;
+    ")
   fi
 
   AGENT_COUNT=$(agmsg_sqlite_mem "

@@ -1581,6 +1581,35 @@ EOF
   trap - EXIT
 }
 
+@test "delivery set monitor/off (codex): does not kill a non-bridge pid from stale bridge artifacts" {
+  skip_on_windows "process teardown under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  mkdir -p "$TEST_SKILL_DIR/run"
+
+  sleep 60 &
+  local unrelated_pid=$!
+  trap "kill $unrelated_pid 2>/dev/null || true" EXIT
+
+  local mode
+  for mode in monitor off; do
+    printf '%s\n' "$unrelated_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
+    : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta"
+    : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.log"
+    : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver"
+
+    run bash "$SCRIPTS/delivery.sh" set "$mode" codex "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    kill -0 "$unrelated_pid"
+    [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
+    [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" ]
+    [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.log" ]
+    [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver" ]
+  done
+
+  kill "$unrelated_pid" 2>/dev/null || true
+  trap - EXIT
+}
+
 @test "delivery set both (codex): installs monitor and turn fallback hooks" {
   run bash "$SCRIPTS/delivery.sh" set both codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
@@ -1645,6 +1674,24 @@ EOF
   [[ "$output" == *"AGMSG monitor mode"* ]]
   [[ "$output" == *"hook-thread-123"* ]]
   [[ "$output" != *'$CODEX_THREAD_ID'* ]]
+}
+
+@test "session-id and delivery directive (codex): reuse SessionStart cc-instance token" {
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 \
+    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" <<<'{"sessionId":"hook-thread-123"}'
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_SKILL_DIR/run/cc-instance.4242")" = "hook-thread-123.4242" ]
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "hook-thread-123.4242" ]
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"hook-thread-123.4242"* ]]
+  [[ "$output" != *"agmsg-codex-4242"* ]]
 }
 
 @test "session-start.sh for codex resolves thread id from rollout when CODEX_THREAD_ID is unset" {

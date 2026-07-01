@@ -278,26 +278,11 @@ emit_monitor_directive() {
   local project="$2"
   local watch="$SKILL_DIR/scripts/watch.sh"
 
-  # Monitor-capable agents expose a stable session/thread id to subprocesses.
-  # Bake it directly into the command so the agent never has to
-  # invent a value — that lets SessionEnd find and clean the matching
-  # pidfile reliably. Fall back to a generated id when the env var isn't
-  # present (older runtimes, direct shell invocations).
-  local session_id=""
-  case "$type" in
-    claude-code) session_id="${CLAUDE_CODE_SESSION_ID:-}" ;;
-    codex) session_id="${CODEX_THREAD_ID:-}" ;;
-    grok-build) session_id="${GROK_SESSION_ID:-}" ;;
-  esac
-  if [ -z "$session_id" ]; then
-    session_id="agmsg-$(compat_uuidgen | tr 'A-Z' 'a-z')"
-  fi
-
-  # Key the watcher on the per-process instance id (#93) so parallel
-  # --continue/--resume sessions sharing a session_id stay isolated. Baking the
-  # composite into the directive matches SessionStart and makes the pidfile
-  # liveness check below see the real watcher (idempotent in watch.sh).
-  session_id="$(agmsg_normalize_instance_id "$session_id" "$type")"
+  # Resolve through the same helper the Codex skill uses for actas/drop/manual
+  # Monitor relaunches. This keeps a hook-provided sessionId recorded in
+  # cc-instance.<agent_pid> as the single owner token for the session.
+  local session_id
+  session_id="$("$SCRIPT_DIR/session-id.sh" "$type" "$project")"
 
   # Skip the directive when this session already has a live watcher —
   # invoking Monitor again would just spawn a duplicate and orphan the
@@ -342,6 +327,25 @@ by this command.
 EOF
 }
 
+is_codex_bridge_cmdline() {
+  local cmd="$1"
+  local project="$2"
+  local team="$3"
+  local name="$4"
+  [ -n "$cmd" ] || return 1
+
+  # Default launches include codex-bridge.js in argv; test/custom wrappers may
+  # carry codex-bridge in their script name. For wrappers with another name,
+  # accept only the bridge argv shape for this exact identity.
+  printf '%s' "$cmd" | grep -Fq -- "codex-bridge" && return 0
+  printf '%s' "$cmd" | grep -Fq -- "--project" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "$project" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "--team" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "$team" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "--name" || return 1
+  printf '%s' "$cmd" | grep -Fq -- "$name" || return 1
+}
+
 # Stop legacy Codex monitor bridge(s) for a project and remove their run artifacts,
 # then tear down the project's shared app-server record too (it is keyed per
 # project, so `off` should not leave it running). Used by `set off codex` (and
@@ -349,7 +353,7 @@ EOF
 # shim is left alone (it is cross-project). Echoes how many bridges were killed.
 stop_codex_bridge() {
   local project="$1"
-  local pairs team name pidfile bpid killed=0
+  local pairs team name pidfile bpid bcmd killed=0
   pairs=$("$SCRIPT_DIR/identities.sh" "$project" codex 2>/dev/null || true)
   if [ -n "$pairs" ]; then
     while IFS=$'\t' read -r team name _rest; do
@@ -358,7 +362,10 @@ stop_codex_bridge() {
       [ -f "$pidfile" ] || continue
       bpid=$(cat "$pidfile" 2>/dev/null || true)
       if [ -n "$bpid" ] && kill -0 "$bpid" 2>/dev/null; then
-        kill "$bpid" 2>/dev/null && killed=$((killed + 1))
+        bcmd="$(compat_get_cmdline "$bpid" 2>/dev/null || true)"
+        if is_codex_bridge_cmdline "$bcmd" "$project" "$team" "$name"; then
+          kill "$bpid" 2>/dev/null && killed=$((killed + 1))
+        fi
       fi
       # .appserver records which app-server URL the bridge was bound to (the
       # launcher's stale-binding guard); drop it with the rest so it cannot

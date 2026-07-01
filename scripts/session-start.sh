@@ -223,6 +223,16 @@ if [ -n "$AGENT_PID" ]; then
           esac
         fi
       fi
+      # The previous token may own actas locks from a manual pre-hook `actas`
+      # flow. Once this agent process switches to the hook token, those locks
+      # would otherwise still look live because their composite pid suffix is
+      # this same AGENT_PID. Release them before the replacement watcher starts.
+      actas_lock_release_all "$prev" 2>/dev/null || true
+      for ready_file in "$RUN_DIR"/ready.*; do
+        [ -f "$ready_file" ] || continue
+        ready_sid=$(cat "$ready_file" 2>/dev/null || true)
+        [ "$ready_sid" = "$prev" ] && rm -f "$ready_file"
+      done
     fi
   fi
   printf '%s\n' "$INSTANCE_ID" > "$STATE"

@@ -106,13 +106,11 @@ agmsg_session_start() {
     bridge_pid=$(cat "$pidfile" 2>/dev/null || true)
     if [ -n "$bridge_pid" ] && kill -0 "$bridge_pid" 2>/dev/null; then
       bridge_cmd=$(compat_get_cmdline "$bridge_pid" 2>/dev/null || true)
-      if printf '%s' "$bridge_cmd" | grep -Fq -- "--project" \
-        && printf '%s' "$bridge_cmd" | grep -Fq -- "$PROJECT" \
-        && printf '%s' "$bridge_cmd" | grep -Fq -- "--type $TYPE" \
-        && printf '%s' "$bridge_cmd" | grep -Fq -- "--team" \
-        && printf '%s' "$bridge_cmd" | grep -Fq -- "$team" \
-        && printf '%s' "$bridge_cmd" | grep -Fq -- "--name" \
-        && printf '%s' "$bridge_cmd" | grep -Fq -- "$name"; then
+      bridge_cmd_padded=" $bridge_cmd "
+      if printf '%s' "$bridge_cmd_padded" | grep -Fq -- " --project $PROJECT " \
+        && printf '%s' "$bridge_cmd_padded" | grep -Fq -- " --type $TYPE " \
+        && printf '%s' "$bridge_cmd_padded" | grep -Fq -- " --team $team " \
+        && printf '%s' "$bridge_cmd_padded" | grep -Fq -- " --name $name "; then
         exit 0
       fi
       rm -f "$pidfile" "${pidfile%.pid}.meta"

@@ -337,13 +337,11 @@ is_codex_bridge_cmdline() {
   # A stale pidfile is untrusted: do not accept "codex-bridge" in a filename or
   # log path by itself. A real bridge launch always carries this exact identity
   # argv shape, including custom wrappers launched by agmsg.
-  printf '%s' "$cmd" | grep -Fq -- "--project" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "$project" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--type codex" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--team" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "$team" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--name" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "$name" || return 1
+  local padded=" $cmd "
+  printf '%s' "$padded" | grep -Fq -- " --project $project " || return 1
+  printf '%s' "$padded" | grep -Fq -- " --type codex " || return 1
+  printf '%s' "$padded" | grep -Fq -- " --team $team " || return 1
+  printf '%s' "$padded" | grep -Fq -- " --name $name " || return 1
 }
 
 is_codex_app_server_cmdline() {

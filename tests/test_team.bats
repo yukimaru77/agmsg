@@ -266,6 +266,20 @@ teardown() {
   [[ "$output" =~ "agent=alice" ]]
 }
 
+@test "reset: handles apostrophe in agent name" {
+  bash "$SCRIPTS/join.sh" myteam "o'brien" claude-code /tmp/proj-a
+  bash "$SCRIPTS/join.sh" myteam "o'brien" claude-code /tmp/proj-b
+
+  run bash "$SCRIPTS/reset.sh" /tmp/proj-a claude-code "o'brien"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "removed 1 registration" ]]
+
+  run bash "$SCRIPTS/whoami.sh" /tmp/proj-a claude-code
+  [[ "$output" =~ "suggest=true" ]]
+  run bash "$SCRIPTS/whoami.sh" /tmp/proj-b claude-code
+  [[ "$output" =~ "agent=o'brien" ]]
+}
+
 @test "reset: removes agent when last registration is cleared" {
   bash "$SCRIPTS/join.sh" myteam alice claude-code /tmp/proj-a
   run bash "$SCRIPTS/reset.sh" /tmp/proj-a claude-code alice

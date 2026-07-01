@@ -56,6 +56,7 @@ if [ -z "$TARGET_AGENT" ]; then
 fi
 
 agmsg_validate_agent_name "$TARGET_AGENT" || exit 1
+TARGET_AGENT_ESCAPED=$(printf '%s' "$TARGET_AGENT" | sed "s/'/''/g")
 AGENT_TYPE_ESCAPED=$(printf '%s' "$AGENT_TYPE" | sed "s/'/''/g")
 PROJECT_PATH_ESCAPED=$(printf '%s' "$PROJECT_PATH" | sed "s/'/''/g")
 
@@ -86,8 +87,9 @@ for TEAM_CONFIG in "$TEAMS_DIR"/*/config.json; do
 
   AGENT_JSON=$(agmsg_sqlite_mem "
     WITH cfg AS (SELECT CAST(readfile('$CONFIG_SQL') AS TEXT) AS json)
-    SELECT json_extract(cfg.json, '\$.agents.$TARGET_AGENT')
-    FROM cfg;
+    SELECT value
+    FROM cfg, json_each(json_extract(cfg.json, '\$.agents'))
+    WHERE key = '$TARGET_AGENT_ESCAPED';
   ")
   if [ -z "$AGENT_JSON" ] || [ "$AGENT_JSON" = "null" ]; then
     agmsg_lock_release
@@ -140,19 +142,28 @@ for TEAM_CONFIG in "$TEAMS_DIR"/*/config.json; do
     SELECT json_array_length(json_extract('$FILTERED_ESCAPED', '\$.registrations'));
   ")
 
-  if [ "$REMAINING" -eq 0 ]; then
-    UPDATED=$(agmsg_sqlite_mem "
-      WITH cfg AS (SELECT CAST(readfile('$CONFIG_SQL') AS TEXT) AS json)
-      SELECT json_remove(cfg.json, '\$.agents.$TARGET_AGENT')
-      FROM cfg;
-    ")
-  else
-    UPDATED=$(agmsg_sqlite_mem "
-      WITH cfg AS (SELECT CAST(readfile('$CONFIG_SQL') AS TEXT) AS json)
-      SELECT json_set(cfg.json, '\$.agents.$TARGET_AGENT', json('$FILTERED_ESCAPED'))
-      FROM cfg;
-    ")
-  fi
+  UPDATED=$(agmsg_sqlite_mem "
+    WITH cfg AS (SELECT CAST(readfile('$CONFIG_SQL') AS TEXT) AS json),
+    base AS (
+      SELECT
+        cfg.json AS json,
+        COALESCE((
+          SELECT json_group_object(key, json(value))
+          FROM json_each(json_extract(cfg.json, '\$.agents'))
+          WHERE key <> '$TARGET_AGENT_ESCAPED'
+        ), json('{}')) AS agents
+      FROM cfg
+    )
+    SELECT json_set(
+      json,
+      '\$.agents',
+      CASE
+        WHEN $REMAINING = 0 THEN json(agents)
+        ELSE json_patch(json(agents), json_object('$TARGET_AGENT_ESCAPED', json('$FILTERED_ESCAPED')))
+      END
+    )
+    FROM base;
+  ")
 
   AGENT_COUNT=$(agmsg_sqlite_mem "
     SELECT count(*)

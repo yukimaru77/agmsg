@@ -1695,6 +1695,39 @@ EOF
   trap - EXIT
 }
 
+@test "delivery set monitor/off (codex): does not match bridge arg values by substring" {
+  skip_on_windows "process teardown under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  mkdir -p "$TEST_SKILL_DIR/run"
+
+  local unrelated="$TEST_SKILL_DIR/non-bridge-helper"
+  cat >"$unrelated" <<'EOF'
+#!/usr/bin/env bash
+trap 'printf unrelated-term > "$AGMSG_TERM_LOG"; exit 0' TERM
+while :; do sleep 1; done
+EOF
+  chmod +x "$unrelated"
+  local term_log="$TEST_SKILL_DIR/unrelated-substring.term"
+  AGMSG_TERM_LOG="$term_log" "$unrelated" \
+    --project "$TEST_PROJECT" --type codex --team team --name malice \
+    >/dev/null 2>&1 3>&- &
+  local unrelated_pid=$!
+  trap "kill $unrelated_pid 2>/dev/null || true" EXIT
+
+  local mode
+  for mode in monitor off; do
+    printf '%s\n' "$unrelated_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
+    run bash "$SCRIPTS/delivery.sh" set "$mode" codex "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    kill -0 "$unrelated_pid"
+    [ ! -f "$term_log" ]
+    [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
+  done
+
+  kill "$unrelated_pid" 2>/dev/null || true
+  trap - EXIT
+}
+
 @test "delivery set both (codex): installs monitor and turn fallback hooks" {
   run bash "$SCRIPTS/delivery.sh" set both codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
@@ -1870,6 +1903,44 @@ EOF
   trap - EXIT
 }
 
+@test "session-start.sh for codex releases manual fallback actas locks when hook id replaces it" {
+  skip_on_windows "watcher liveness under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
+  local agent_pid="$$"
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  local fallback_sid="$output"
+
+  run bash "$SCRIPTS/actas-claim.sh" "$TEST_PROJECT" codex alice "$fallback_sid"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_SKILL_DIR/run/actas.team__alice.session")" = "$fallback_sid" ]
+  printf '%s\n' "$fallback_sid" > "$TEST_SKILL_DIR/run/ready.team__alice"
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID="$agent_pid" \
+    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" <<<'{"sessionId":"hook-thread-123"}'
+  [ "$status" -eq 0 ]
+  [ ! -f "$TEST_SKILL_DIR/run/actas.team__alice.session" ]
+  [ ! -f "$TEST_SKILL_DIR/run/ready.team__alice" ]
+
+  local hook_sid="hook-thread-123.$agent_pid"
+  AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "$hook_sid" "$TEST_PROJECT" codex alice >/dev/null 2>&1 &
+  local watcher_pid=$!
+  trap "kill $watcher_pid 2>/dev/null || true" EXIT
+  for _ in {1..30}; do
+    [ -f "$TEST_SKILL_DIR/run/ready.team__alice" ] && break
+    sleep 0.1
+  done
+  [ -f "$TEST_SKILL_DIR/run/ready.team__alice" ]
+  [ "$(cat "$TEST_SKILL_DIR/run/actas.team__alice.session")" = "$hook_sid" ]
+  kill "$watcher_pid" 2>/dev/null || true
+  for _ in {1..20}; do
+    ! kill -0 "$watcher_pid" 2>/dev/null && break
+    sleep 0.1
+  done
+  trap - EXIT
+}
+
 @test "session-start.sh for codex resolves thread id from rollout when CODEX_THREAD_ID is unset" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
@@ -1936,6 +2007,16 @@ EOF
   [[ "$output" == *"agmsg-codex-4242.4242"* ]]
   [[ "$output" == *" alice"* ]]
   [[ "$output" != *'$CODEX_THREAD_ID'* ]]
+}
+
+@test "session-id (codex): overwrites mismatched cc-instance state on fallback" {
+  mkdir -p "$TEST_SKILL_DIR/run"
+  printf '%s\n' "old-token.9999" > "$TEST_SKILL_DIR/run/cc-instance.4242"
+
+  run env -u CODEX_THREAD_ID AGMSG_AGENT_PID=4242 bash "$SCRIPTS/session-id.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "agmsg-codex-4242.4242" ]
+  [ "$(cat "$TEST_SKILL_DIR/run/cc-instance.4242")" = "agmsg-codex-4242.4242" ]
 }
 
 @test "monitor-command rejects unsupported monitor types" {

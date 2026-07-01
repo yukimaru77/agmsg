@@ -34,6 +34,7 @@ fi
 session_id="${AGMSG_SESSION_ID:-}"
 agent_pid="$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)"
 state_file=""
+state_rejected=0
 
 if [ -z "$session_id" ] && [ -n "$agent_pid" ]; then
   state_file="$SKILL_DIR/run/cc-instance.$agent_pid"
@@ -42,6 +43,7 @@ if [ -z "$session_id" ] && [ -n "$agent_pid" ]; then
     if [ -n "$state_id" ]; then
       if agmsg_instance_is_composite "$state_id" && [ "${state_id##*.}" != "$agent_pid" ]; then
         state_id=""
+        state_rejected=1
       fi
       session_id="$state_id"
     fi
@@ -75,7 +77,9 @@ instance_id="$(agmsg_normalize_instance_id "$session_id" "$TYPE")"
 if [ "$write_fallback_state" = 1 ] && [ -n "$agent_pid" ]; then
   mkdir -p "$SKILL_DIR/run" 2>/dev/null || true
   state_file="$SKILL_DIR/run/cc-instance.$agent_pid"
-  [ -f "$state_file" ] || printf '%s\n' "$instance_id" > "$state_file"
+  if [ "$state_rejected" = 1 ] || [ ! -f "$state_file" ]; then
+    printf '%s\n' "$instance_id" > "$state_file"
+  fi
 fi
 
 printf '%s\n' "$instance_id"

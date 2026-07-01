@@ -41,13 +41,11 @@ resolve_identity() {  # prints "team<TAB>name" lines for the project's codex rol
 is_bridge_cmdline() {
   local cmd="$1"
   [ -n "$cmd" ] || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--project" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "$PROJECT" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--type $TYPE" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--team" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "$team" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "--name" || return 1
-  printf '%s' "$cmd" | grep -Fq -- "$name" || return 1
+  local padded=" $cmd "
+  printf '%s' "$padded" | grep -Fq -- " --project $PROJECT " || return 1
+  printf '%s' "$padded" | grep -Fq -- " --type $TYPE " || return 1
+  printf '%s' "$padded" | grep -Fq -- " --team $team " || return 1
+  printf '%s' "$padded" | grep -Fq -- " --name $name " || return 1
 }
 
 # actas may register the role a moment after launch, so retry while the parent

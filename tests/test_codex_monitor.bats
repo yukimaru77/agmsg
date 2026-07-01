@@ -181,7 +181,9 @@ while :; do sleep 1; done
 EOF
   chmod +x "$unrelated"
   local term_log="$TEST_PROJECT/unrelated.term"
-  AGMSG_TERM_LOG="$term_log" "$unrelated" >/dev/null 2>&1 3>&- &
+  AGMSG_TERM_LOG="$term_log" "$unrelated" \
+    --project "$TEST_PROJECT" --type codex --team team --name malice \
+    >/dev/null 2>&1 3>&- &
   local unrelated_pid=$!
   sleep 2 &
   local parent_pid=$!

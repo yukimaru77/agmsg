@@ -10,7 +10,7 @@ set -euo pipefail
 #   delivery.sh restart [<project_path> <type>]
 #
 # Modes:
-#   monitor  — SessionStart hook → Claude Code Monitor tool → watch.sh stream
+#   monitor  — SessionStart hook → Monitor tool → watch.sh stream
 #   turn     — Stop hook → check-inbox.sh between turns (legacy)
 #   both     — monitor primary; turn as per-session safety net
 #   off      — no automatic delivery
@@ -20,7 +20,7 @@ set -euo pipefail
 # the new mode requires. Re-running with the same mode is a no-op.
 #
 # For in-session activation, several actions print a final
-# "AGMSG-DIRECTIVE:" line that a running Claude Code agent reads from the
+# "AGMSG-DIRECTIVE:" line that a running agent reads from the
 # command output and acts on (invoke Monitor, TaskStop the watcher). This
 # closes the gap where, without the directive, only the *next* session
 # would pick up the mode change.
@@ -164,7 +164,7 @@ agmsg_delivery_on_enable() { :; }
 # <project>. Passing the type scopes the kill so disabling one type's delivery
 # never tears down another type's watcher in the same project.
 agmsg_delivery_on_disable() { kill_all_watchers "$2" "$1" >/dev/null 2>&1 || true; }
-# Default in-session stop directive: tell a running Claude Code session to find
+# Default in-session stop directive: tell a running monitor-capable session to find
 # and TaskStop its watcher. Types whose runtime launches the watcher a different
 # way (e.g. grok-build's `monitor` tool) override this with their own wording.
 agmsg_delivery_stop_directive() { emit_stop_directive; }
@@ -261,12 +261,17 @@ emit_monitor_directive() {
   local project="$2"
   local watch="$SKILL_DIR/scripts/watch.sh"
 
-  # Claude Code exports CLAUDE_CODE_SESSION_ID for every subprocess of the
-  # session. Bake it directly into the command so the agent never has to
+  # Monitor-capable agents expose a stable session/thread id to subprocesses.
+  # Bake it directly into the command so the agent never has to
   # invent a value — that lets SessionEnd find and clean the matching
   # pidfile reliably. Fall back to a generated id when the env var isn't
-  # present (older CC, non-CC runtimes).
-  local session_id="${CLAUDE_CODE_SESSION_ID:-}"
+  # present (older runtimes, direct shell invocations).
+  local session_id=""
+  case "$type" in
+    claude-code) session_id="${CLAUDE_CODE_SESSION_ID:-}" ;;
+    codex) session_id="${CODEX_THREAD_ID:-}" ;;
+    grok-build) session_id="${GROK_SESSION_ID:-}" ;;
+  esac
   if [ -z "$session_id" ]; then
     session_id="agmsg-$(compat_uuidgen | tr 'A-Z' 'a-z')"
   fi
@@ -277,7 +282,7 @@ emit_monitor_directive() {
   # liveness check below see the real watcher (idempotent in watch.sh).
   session_id="$(agmsg_normalize_instance_id "$session_id" "$type")"
 
-  # Skip the directive when this CC session already has a live watcher —
+  # Skip the directive when this session already has a live watcher —
   # invoking Monitor again would just spawn a duplicate and orphan the
   # previous watcher process.
   local pidfile="$RUN_DIR/watch.$session_id.pid"
@@ -320,7 +325,7 @@ by this command.
 EOF
 }
 
-# Stop the Codex monitor bridge(s) for a project and remove their run artifacts,
+# Stop legacy Codex monitor bridge(s) for a project and remove their run artifacts,
 # then tear down the project's shared app-server record too (it is keyed per
 # project, so `off` should not leave it running). Used by `set off codex` (and
 # the manual counterpart to the not-yet-wired auto teardown, #149). The global
@@ -387,9 +392,9 @@ do_set() {
     echo "Unknown mode: $MODE (use monitor|turn|both|off)" >&2; exit 1 ;;
   esac
   # Second: does THIS type accept the mode? A type declares the modes its CLI
-  # accepts via the delivery_modes= manifest key (e.g. codex omits 'both' — the
-  # bridge beta has no both-mode; rule-file types like opencode omit
-  # 'monitor'/'both'). Reject anything not listed, before any file is touched.
+  # accepts via the delivery_modes= manifest key. Rule-file/manual-only types
+  # often omit monitor/both; monitor-capable types can opt into the full set.
+  # Reject anything not listed, before any file is touched.
   # Types without the key fall back to the full set so an unconfigured manifest
   # still works.
   local SUPPORTED_MODES
@@ -424,7 +429,7 @@ do_set() {
     off)
       echo "Future sessions: no automatic delivery."
       # Type-specific teardown via the plug (default: stop this project's
-      # watchers; codex stops its bridge instead).
+      # watchers).
       agmsg_delivery_on_disable "$TYPE" "$PROJECT"
       # Only emit the in-session watcher-stop directive for types that actually
       # have an automatic delivery mode to stop. A manual-only type

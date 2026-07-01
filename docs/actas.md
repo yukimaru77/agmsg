@@ -10,7 +10,7 @@ Mechanically, the skill:
 
 1. Joins `<name>` under your current team if it isn't registered for this project yet.
 2. Claims an exclusivity lock on `(team, name)` under the skill's run directory (`~/.agents/skills/agmsg/run/actas.<team>__<name>.session`).
-3. TaskStops the running `agmsg inbox stream` Monitor.
+3. Stops the running `agmsg inbox stream` Monitor.
 4. Relaunches the Monitor filtered to `<name>` only, via `watch.sh`'s optional 4th argument.
 
 Effects:
@@ -33,7 +33,7 @@ Switching is session-scoped state held by the agent. `/clear` or a new session r
 
 ## Recovery from a stuck lock
 
-`actas-claim.sh` writes the lock file before the skill TaskStops the old Monitor and launches the new one. If that subsequent dance fails — TaskStop succeeds but the new Monitor invocation errors out — the lock stays put but the session has no narrowed watcher.
+`actas-claim.sh` writes the lock file before the skill stops the old Monitor and launches the new one. If that subsequent dance fails — the stop succeeds but the new Monitor invocation errors out — the lock stays put but the session has no narrowed watcher.
 
 To unstick:
 
@@ -50,21 +50,13 @@ PID recycling could in theory keep a long-dead session looking alive forever, st
 
 ## Subscription model
 
-agmsg follows a **one CC session = one active role** model. Each watcher subscribes to a *static* set of identities decided at launch:
+agmsg follows a **one monitor-capable session = one active role** model. Each watcher subscribes to a *static* set of identities decided at launch:
 
-- **Without `actas`**: the watcher subscribes to whichever `(team, agent)` pairs were registered for this `(project, agent_type)` at the moment `watch.sh` started, *minus* any pair currently locked by another live session's `actas` claim. The set is *not* re-resolved later — a peer that claims a name after this watcher launched will start receiving exclusively, but this watcher won't notice the loss until it restarts. A role joined mid-session via `actas` from another CC does *not* start arriving in CCs that were launched before it.
+- **Without `actas`**: the watcher subscribes to whichever `(team, agent)` pairs were registered for this `(project, agent_type)` at the moment `watch.sh` started, *minus* any pair currently locked by another live session's `actas` claim. The set is *not* re-resolved later — a peer that claims a name after this watcher launched will start receiving exclusively, but this watcher won't notice the loss until it restarts. A role joined mid-session via `actas` from another session does *not* start arriving in sessions whose watcher launched before it.
 - **After `actas <name>`**: the watcher is relaunched filtered to `<name>` only, and the lock that filter implies prevents peer watchers from ever subscribing to `<name>` while this session is live.
 
-This is intentional. It keeps each CC bound to one role's inbox, so a `tech-lead` window stays clear of `biz-analyst` traffic and vice versa, and the exclusivity holds across sessions on the same machine rather than per-session.
+This is intentional. It keeps each session bound to one role's inbox, so a `tech-lead` window stays clear of `biz-analyst` traffic and vice versa, and the exclusivity holds across sessions on the same machine rather than per-session.
 
-To pick up a role added after a CC launched (without switching to it exclusively), restart the CC or `/clear` so SessionStart re-launches `watch.sh` with the fresh identity list — and with the up-to-date lock view.
+To pick up a role added after a session launched (without switching to it exclusively), restart or clear the session so SessionStart re-launches `watch.sh` with the fresh identity list — and with the up-to-date lock view.
 
-The send side mirrors this: every `send.sh` call from this CC uses the active role as the `from` agent, whether that's the implicit one (default) or the one set by the most recent `actas`.
-
-## Codex caveat
-
-On Codex, `$agmsg actas <name>` is **send-side only** for this session. Codex slash commands don't see a stable `session_id`, so they can't claim a peer-visible exclusivity lock — Claude Code peers will still subscribe to `<name>`.
-
-The receive side isn't actually narrowed either: `check-inbox.sh` resolves identity through `whoami.sh` (which picks the first registered agent) and has no view of the agent's in-session actas role, so Codex keeps polling whichever pair it would have without actas. The check-inbox lock filter only skips pairs *another* session owns.
-
-Treat Codex actas as a from-line override until a Codex session-id story exists. Claude Code's `/agmsg actas` does claim the lock symmetrically and is the path that exercises the full exclusivity model.
+The send side mirrors this: every `send.sh` call from this session uses the active role as the `from` agent, whether that's the implicit one (default) or the one set by the most recent `actas`.

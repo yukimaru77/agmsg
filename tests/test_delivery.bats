@@ -441,9 +441,9 @@ JSON
 # --- session-id resolution: vendor field-name differences (grok/cursor) ---
 # Grok Build emits the session id on stdin as camelCase "sessionId" and injects
 # GROK_SESSION_ID into every hook; Claude uses snake_case "session_id". The
-# shared resolver tries snake -> camel -> $GROK_SESSION_ID. The Monitor
+# shared resolver tries snake -> camel -> the type-specific session env. The Monitor
 # directive echoes the resolved id as the watch.sh command's session arg, so we
-# assert through that. (Exercised via claude-code since the resolver is shared.)
+# assert through that.
 
 @test "session-start: resolves camelCase sessionId from stdin (grok/cursor field)" {
   env AGMSG_RESOLVE_PROJECT=0 bash "$SCRIPTS/join.sh" team alice claude-code "$TEST_PROJECT" >/dev/null
@@ -457,9 +457,9 @@ JSON
 }
 
 @test "session-start: falls back to GROK_SESSION_ID env when stdin lacks a session id" {
-  env AGMSG_RESOLVE_PROJECT=0 bash "$SCRIPTS/join.sh" team alice claude-code "$TEST_PROJECT" >/dev/null
-  bash "$SCRIPTS/delivery.sh" set monitor claude-code "$TEST_PROJECT" >/dev/null
-  run env AGMSG_RESOLVE_PROJECT=0 GROK_SESSION_ID=grokEnvSID bash "$SCRIPTS/session-start.sh" claude-code "$TEST_PROJECT" <<<'{}'
+  env AGMSG_RESOLVE_PROJECT=0 bash "$SCRIPTS/join.sh" team alice grok-build "$TEST_PROJECT" >/dev/null
+  bash "$SCRIPTS/delivery.sh" set monitor grok-build "$TEST_PROJECT" >/dev/null
+  run env AGMSG_RESOLVE_PROJECT=0 GROK_SESSION_ID=grokEnvSID bash "$SCRIPTS/session-start.sh" grok-build "$TEST_PROJECT" <<<'{}'
   [ "$status" -eq 0 ]
   local cmdline
   cmdline=$(printf '%s\n' "$output" | sed -n 's/^[[:space:]]*command: //p')
@@ -672,6 +672,7 @@ EOF
   # compare — without it, a CODEX_THREAD_ID inherited from the parent env (e.g.
   # running the suite inside a Codex session) short-circuits the resolver and
   # this test never exercises the path it's meant to cover.
+  AGMSG_CODEX_BRIDGE=1 \
   AGMSG_CODEX_BRIDGE_APP_SERVER="unix://$TEST_SKILL_DIR/run/codex-app-server.test.sock" \
   AGMSG_CODEX_BRIDGE_CMD="$fake" \
   AGMSG_TEST_LOG="$log" \
@@ -1392,8 +1393,8 @@ JSON
   [ "$count" -eq 1 ]
 }
 
-# --- Codex monitor bridge (#41) ---
-@test "session-start.sh for codex starts bridge when monitor launcher env is present" {
+# --- Codex native monitor + legacy bridge compatibility (#41) ---
+@test "session-start.sh for codex starts legacy bridge when monitor launcher env is present" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
   local log="$TEST_SKILL_DIR/fake-codex-bridge.log"
@@ -1422,7 +1423,7 @@ EOF
   grep -q -- "--inline-inbox" "$log"
 }
 
-@test "session-start.sh for codex stays quiet without monitor launcher env" {
+@test "session-start.sh for codex emits Monitor directive without legacy bridge env" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
   local log="$TEST_SKILL_DIR/fake-codex-bridge.log"
@@ -1432,176 +1433,88 @@ printf '%s\n' "$*" >> "$AGMSG_TEST_LOG"
 EOF
   chmod +x "$fake"
 
-  AGMSG_CODEX_BRIDGE_CMD="$fake" AGMSG_TEST_LOG="$log" CODEX_THREAD_ID="thread-123" \
-    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" >/dev/null
+  run env AGMSG_CODEX_BRIDGE_CMD="$fake" AGMSG_TEST_LOG="$log" CODEX_THREAD_ID="thread-123" \
+    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT"
 
+  [ "$status" -eq 0 ]
   [ ! -f "$log" ]
+  [[ "$output" == *"AGMSG monitor mode"* ]]
+  [[ "$output" == *"Monitor tool"* ]]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" == *"thread-123"* ]]
 }
 
-@test "delivery set monitor (codex): installs SessionStart and prints Codex shell function" {
+@test "delivery set monitor (codex): installs SessionStart and prints Monitor directive" {
   run bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Codex monitor beta is enabled"* ]]
-  [[ "$output" == *"codex() {"* ]]
-  [[ "$output" == *"codex-shim.sh"* ]]
-  [[ "$output" == *"launch with codex"* ]]
-  [[ "$output" == *"Optional global PATH shim is still available"* ]]
-  [[ "$output" == *"For more info: https://github.com/fujibee/agmsg/blob/main/docs/codex-monitor-beta.md"* ]]
-  [[ "$output" != *"Monitor tool"* ]]
+  [[ "$output" == *"Future sessions: SessionStart hook will auto-launch the watcher."* ]]
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  [[ "$output" == *"Monitor tool"* ]]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" != *"Codex monitor beta"* ]]
+  [[ "$output" != *"codex() {"* ]]
+  [[ "$output" != *"codex-shim.sh"* ]]
   [ ! -e "$HOME/.agents/bin/codex" ]
   local hook_file="$TEST_PROJECT/.codex/hooks.json"
   [ -f "$hook_file" ]
   grep -q "session-start.sh" "$hook_file"
 }
 
-@test "delivery set both (codex): rejected by the delivery_modes gate" {
-  # codex's manifest omits 'both' (delivery_modes=monitor turn off), so the
-  # central gate in delivery.sh rejects it before any file is touched.
+@test "delivery set both (codex): installs monitor and turn fallback hooks" {
   run bash "$SCRIPTS/delivery.sh" set both codex "$TEST_PROJECT"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"not supported for codex"* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Delivery mode set to 'both'"* ]]
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  local hook_file="$TEST_PROJECT/.codex/hooks.json"
+  [ -f "$hook_file" ]
+  grep -q "session-start.sh" "$hook_file"
+  grep -q "check-inbox.sh" "$hook_file"
 }
 
-@test "delivery status (codex): live bridge reports alive and suppresses watch count" {
-  skip_on_windows "codex bridge status liveness under Git Bash (#182)"
+@test "delivery status (codex): reports watcher count instead of bridge state" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
   mkdir -p "$TEST_SKILL_DIR/run"
 
-  sleep 60 &
-  local bpid=$!
-  # shellcheck disable=SC2064  # capture the current child pid for EXIT cleanup
-  trap "kill $bpid 2>/dev/null || true" EXIT
-  printf '%s\n' "$bpid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
-  cat > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" <<EOF
-pid=$bpid
-project=$TEST_PROJECT
-team=team
-name=alice
-type=codex
-EOF
-  printf '%s\n' 99999999 > "$TEST_SKILL_DIR/run/watch.fake.pid"
-
   run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
-  [[ "$output" == *"Codex bridge: team/alice alive (pid $bpid)"* ]]
-  [[ "$output" != *"watch processes:"* ]]
-
-  kill "$bpid" 2>/dev/null || true
-  trap - EXIT
+  [[ "$output" == *"watch processes: 0 alive, 0 stale pidfiles"* ]]
+  [[ "$output" != *"Codex bridge:"* ]]
 }
 
-@test "delivery status (codex): stale bridge pidfile is reported as stale" {
-  skip_on_windows "codex bridge status liveness under Git Bash (#182)"
-  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
-  mkdir -p "$TEST_SKILL_DIR/run"
-
-  local dead_pid=999999
-  while kill -0 "$dead_pid" 2>/dev/null; do
-    dead_pid=$((dead_pid + 1))
-  done
-  printf '%s\n' "$dead_pid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
-  cat > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" <<EOF
-pid=$dead_pid
-project=$TEST_PROJECT
-team=team
-name=alice
-type=codex
-EOF
-
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"mode: monitor"* ]]
-  [[ "$output" == *"Codex bridge: team/alice stale pidfile (pid $dead_pid not running)"* ]]
-  [[ "$output" != *"watch processes:"* ]]
-}
-
-@test "delivery status (codex): bridge metadata mismatch is reported as stale" {
-  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
-  mkdir -p "$TEST_SKILL_DIR/run"
-
-  printf '%s\n' "$$" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
-  cat > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" <<EOF
-pid=$$
-project=$TEST_PROJECT-other
-team=team
-name=alice
-type=codex
-EOF
-
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"mode: monitor"* ]]
-  [[ "$output" == *"Codex bridge: team/alice stale pidfile (metadata mismatch)"* ]]
-  [[ "$output" != *"watch processes:"* ]]
-}
-
-@test "delivery status (codex): missing bridge metadata is reported as stale" {
-  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
-  mkdir -p "$TEST_SKILL_DIR/run"
-
-  printf '%s\n' "$$" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
-
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"mode: monitor"* ]]
-  [[ "$output" == *"Codex bridge: team/alice stale pidfile (missing metadata)"* ]]
-  [[ "$output" != *"watch processes:"* ]]
-}
-
-@test "delivery status (codex): identity with no bridge reports not running" {
-  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
-  bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
-
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"mode: monitor"* ]]
-  [[ "$output" == *"Codex bridge: team/alice not running"* ]]
-  [[ "$output" != *"watch processes:"* ]]
-}
-
-@test "delivery status (codex): multiple identities are enumerated independently" {
-  skip_on_windows "codex bridge status liveness under Git Bash (#182)"
+@test "delivery status (codex): multiple identities still use one watcher summary" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   bash "$SCRIPTS/join.sh" team bob codex "$TEST_PROJECT" >/dev/null
   bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
   mkdir -p "$TEST_SKILL_DIR/run"
 
-  sleep 60 &
-  local bpid=$!
-  # shellcheck disable=SC2064  # capture the current child pid for EXIT cleanup
-  trap "kill $bpid 2>/dev/null || true" EXIT
-  printf '%s\n' "$bpid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
-  cat > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" <<EOF
-pid=$bpid
-project=$TEST_PROJECT
-team=team
-name=alice
-type=codex
-EOF
-
   run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Codex bridge: team/alice alive (pid $bpid)"* ]]
-  [[ "$output" == *"Codex bridge: team/bob not running"* ]]
-  [[ "$output" != *"watch processes:"* ]]
-
-  kill "$bpid" 2>/dev/null || true
-  trap - EXIT
+  [[ "$output" == *"mode: monitor"* ]]
+  [[ "$output" == *"watch processes: 0 alive, 0 stale pidfiles"* ]]
+  [[ "$output" != *"Codex bridge:"* ]]
 }
 
-@test "delivery status (codex): monitor mode with no identities is explicit" {
+@test "delivery status (codex): live watcher is reported as alive" {
+  skip_on_windows "watcher liveness under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
+  mkdir -p "$TEST_SKILL_DIR/run"
+
+  sleep 60 &
+  local wpid=$!
+  trap "kill $wpid 2>/dev/null || true" EXIT
+  printf '%s\n' "$wpid" > "$TEST_SKILL_DIR/run/watch.fake-session.pid"
 
   run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
-  [[ "$output" == *"Codex bridge: no identities registered for this project"* ]]
-  [[ "$output" != *"watch processes:"* ]]
+  [[ "$output" == *"watch processes: 1 alive, 0 stale pidfiles"* ]]
+  [[ "$output" != *"Codex bridge:"* ]]
+
+  kill "$wpid" 2>/dev/null || true
+  trap - EXIT
 }
 
 @test "session-start.sh for codex resolves thread id from rollout when CODEX_THREAD_ID is unset" {
@@ -1633,47 +1546,35 @@ EOF
   grep -q -- "--thread rollout-thread-999" "$log"
 }
 
-@test "delivery set monitor (codex): warns loudly when Node is missing" {
-  # Node preflight: the bridge is a Node program; enabling monitor without Node
-  # must flag it rather than silently never starting. AGMSG_CODEX_NODE points the
-  # check at a binary that does not exist. See #41.
+@test "delivery set monitor (codex): native monitor does not require Node" {
   run env AGMSG_CODEX_NODE=__agmsg_no_such_node__ bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING: Node.js"* ]]
-  [[ "$output" == *"monitor delivery will NOT start"* ]]
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  [[ "$output" != *"WARNING: Node.js"* ]]
+  [[ "$output" != *"monitor delivery will NOT start"* ]]
 }
 
-@test "delivery set off (codex): stops the bridge, cleans run files, notes shell profile cleanup" {
+@test "delivery set off (codex): stops project watcher and emits stop directive" {
+  skip_on_windows "watcher process kill under Git Bash (#182)"
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   mkdir -p "$TEST_SKILL_DIR/run"
-  # Stand in for a live bridge with a real process we can check kill -0 against.
-  sleep 60 &
-  local bpid=$!
-  echo "$bpid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
-  echo "pid=$bpid" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta"
-  : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.log"
-  # The launcher's stale-binding sidecar + the project's shared app-server record
-  # must be torn down too. Use a non-codex pid for the server record so the
-  # cmdline guard skips the kill — the record is still dropped.
-  : > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver"
-  source "$SCRIPTS/lib/hash.sh"
-  local h; h="$(printf '%s' "$TEST_PROJECT" | agmsg_sha1)"
-  echo 2147483647 > "$TEST_SKILL_DIR/run/codex-app-server.$h.pid"
-  : > "$TEST_SKILL_DIR/run/codex-app-server.$h.port"
-  : > "$TEST_SKILL_DIR/run/codex-app-server.$h.version"
+
+  AGMSG_WATCH_INTERVAL=60 bash "$SCRIPTS/watch.sh" "test-session" "$TEST_PROJECT" codex >/dev/null 2>&1 &
+  local wpid=$!
+  trap "kill $wpid 2>/dev/null || true" EXIT
+  for _ in {1..20}; do
+    [ -f "$TEST_SKILL_DIR/run/watch.test-session.pid" ] && break
+    sleep 0.1
+  done
+  [ -f "$TEST_SKILL_DIR/run/watch.test-session.pid" ]
 
   run bash "$SCRIPTS/delivery.sh" set off codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Stopped 1 Codex bridge"* ]]
-  [[ "$output" == *"shim"* ]]
-  ! kill -0 "$bpid" 2>/dev/null
-  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid" ]
-  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.meta" ]
-  [ ! -f "$TEST_SKILL_DIR/run/codex-bridge.team.alice.appserver" ]
-  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$h.pid" ]
-  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$h.port" ]
-  [ ! -f "$TEST_SKILL_DIR/run/codex-app-server.$h.version" ]
-  kill "$bpid" 2>/dev/null || true
+  [[ "$output" == *"Future sessions: no automatic delivery."* ]]
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  ! kill -0 "$wpid" 2>/dev/null
+  [ ! -f "$TEST_SKILL_DIR/run/watch.test-session.pid" ]
+  trap - EXIT
 }
 
 # --- hermes (manual-only: delivery_modes=off, no automatic hook) ---

@@ -30,7 +30,7 @@ teardown() {
     >/dev/null 2>&1 &
   local wpid=$! i
   # Wait for the watcher to attach (it claims the lock + writes the ready sentinel).
-  for i in 1 2 3 4 5 6 7 8 9 10; do [ -e "$RUN/ready.team__alice" ] && break; sleep 0.5; done
+  for i in $(seq 1 100); do [ -e "$RUN/ready.team__alice" ] && break; sleep 0.1; done
   [ -e "$RUN/ready.team__alice" ]
   [ -f "$RUN/actas.team__alice.session" ]
 

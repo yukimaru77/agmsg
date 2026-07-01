@@ -52,6 +52,13 @@ EOF
   # 2. Process-tree detection via each type's `detect_proc=` name globs. Walk up
   # from this process; at each ancestor the first type whose glob matches wins
   # (the globs are disjoint, so order within a level is irrelevant).
+  # Tests and non-agent automation can disable this to exercise the historical
+  # fallback without being influenced by the process that launched them.
+  if [ "${AGMSG_DISABLE_PROC_DETECT:-}" = "1" ]; then
+    echo "claude-code"
+    return 0
+  fi
+
   local pid=$$ max_depth=10 depth=0 proc_name _pats _pat
   while [ $depth -lt $max_depth ] && [ "$pid" != "1" ] && [ -n "$pid" ]; do
     proc_name=$(compat_get_comm "$pid" 2>/dev/null || true)

@@ -9,14 +9,15 @@ usage() {
   cat <<EOF
 Usage: codex-shim-install.sh [function|install|remove|status]
 
-Prints the recommended shell function for agmsg Codex monitor mode.
+Prints a backwards-compatible Codex shell function.
 With no subcommand, prints the function.
 
 The optional global PATH shim can still be installed at:
   $TARGET
 
-The function and PATH shim both route only interactive Codex launches through
-agmsg's monitor bridge when the current project is in Codex monitor mode.
+Native Codex monitor mode no longer needs a launch shim. The generated function
+and PATH shim pass through to the real Codex binary, preserving older shell
+profiles while avoiding the legacy app-server bridge.
 EOF
 }
 
@@ -35,9 +36,9 @@ case "$cmd" in
     ;;
   function|print-function|shell-function)
     cat <<EOF
-# agmsg Codex monitor beta: put this in your interactive shell profile.
+# agmsg Codex compatibility shim. Native monitor mode does not require it.
 codex() {
-  $(shell_quote "$SCRIPT_DIR/codex-shim.sh") "\$@"
+  bash $(shell_quote "$SCRIPT_DIR/codex-shim.sh") "\$@"
 }
 EOF
     ;;
@@ -58,7 +59,7 @@ EOF
       echo "export AGMSG_CODEX_SHIM_WRAPPER=1"
       echo "export AGMSG_CODEX_SHIM_SCRIPT_DIR=$(shell_quote "$SCRIPT_DIR")"
       echo "export AGMSG_CODEX_SHIM_TARGET=$(shell_quote "$TARGET")"
-      echo "exec $(shell_quote "$SCRIPT_DIR/codex-shim.sh") \"\$@\""
+      echo "exec bash $(shell_quote "$SCRIPT_DIR/codex-shim.sh") \"\$@\""
     } > "$TARGET"
     chmod +x "$TARGET"
     if [ "${AGMSG_CODEX_SHIM_INSTALL_QUIET:-}" != "1" ]; then

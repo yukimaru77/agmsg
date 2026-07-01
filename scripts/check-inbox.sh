@@ -52,7 +52,13 @@ SESSION_ID=$(printf '%s' "$INPUT" \
 [ -z "$SESSION_ID" ] && SESSION_ID=$(printf '%s' "$INPUT" \
   | sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
   | head -1)
-[ -z "$SESSION_ID" ] && SESSION_ID="${GROK_SESSION_ID:-}"
+if [ -z "$SESSION_ID" ]; then
+  case "$TYPE" in
+    codex) SESSION_ID="${CODEX_THREAD_ID:-}" ;;
+    claude-code) SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}" ;;
+    grok-build) SESSION_ID="${GROK_SESSION_ID:-}" ;;
+  esac
+fi
 if [ -n "$SESSION_ID" ]; then
   # The monitor watcher keys its pidfile (and its actas owner, below) on the
   # per-process instance id (#93), not the bare session_id. Normalize to the
@@ -132,9 +138,8 @@ for team in "${TEAM_LIST[@]}"; do
   #
   # Note: AGENT comes from whoami.sh, which returns the first registered
   # agent for (project, type). It is NOT the session's in-memory actas
-  # role. That asymmetry is the Codex caveat documented in README — if a
-  # Codex session actas'd into <name>, check-inbox is still polling
-  # whatever whoami chose first, not <name>.
+  # role. In monitor/both mode, watch.sh handles narrowed actas receive.
+  # In turn-only mode, check-inbox still polls whatever whoami chose first.
   state=$(actas_lock_state "$team" "$AGENT" "${SESSION_ID:-}")
   case "$state" in
     other:*) continue ;;

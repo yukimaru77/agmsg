@@ -7,17 +7,17 @@ source "$(cd "$(dirname "$0")" && pwd)/lib/compat.sh"
 #
 # Usage: session-start.sh <type> <project_path>
 #
-# Reads the hook input JSON from stdin to extract the session_id, then emits
-# an instruction telling Claude to invoke the Monitor tool against watch.sh.
-# The hook input includes session_id for SessionStart events.
+# Reads the hook input JSON/environment to extract the session id, then emits
+# an instruction telling the host agent to invoke the Monitor tool against
+# watch.sh.
 #
 # Before emitting the directive, this script also takes care of preventing
 # duplicate watchers across `/clear` (and similar) re-fires of SessionStart
-# within the same Claude Code instance. State is kept in
-# `~/.agents/agmsg/run/cc-instance.<cc_pid>`, which records the last
-# session_id this CC instance attached to. On each fire we kill the watcher
-# for the previous session_id, then record the new one. Multiple CC
-# instances of the same project get their own cc_pid, so they never step
+# within the same agent instance. State is kept in
+# `~/.agents/agmsg/run/cc-instance.<agent_pid>`, which records the last
+# session_id this agent instance attached to. On each fire we kill the watcher
+# for the previous session_id, then record the new one. Multiple agent
+# instances of the same project get their own agent_pid, so they never step
 # on each other.
 #
 # Quietly exits 0 when whoami says the agent isn't joined to anything yet.
@@ -51,10 +51,10 @@ PAIRS=$("$SCRIPT_DIR/identities.sh" "$PROJECT" "$TYPE" 2>/dev/null || true)
 
 # Type-specific SessionStart behaviour (Template Method). A type may ship
 # scripts/drivers/types/<type>/_session-start.sh defining agmsg_session_start to override the
-# default no-op — codex uses it to hand the session off to the bridge. The plug
+# default no-op. The plug
 # is sourced in this script's context so it sees PROJECT / RUN_DIR / SKILL_DIR /
-# PAIRS and the helpers sourced above; it may exit 0 (codex does, having no
-# Monitor tool) to skip the Monitor-directive path below.
+# PAIRS and the helpers sourced above; legacy codex bridge mode may exit 0 to
+# skip the Monitor-directive path below.
 agmsg_session_start_default() { :; }
 
 _tdir="$(agmsg_type_dir "$TYPE" 2>/dev/null || true)"
@@ -69,7 +69,7 @@ fi
 # Read hook input JSON from stdin. The session id field name differs by vendor:
 # Claude Code emits snake_case "session_id"; Grok Build (and Cursor) emit
 # camelCase "sessionId". Try snake first (claude-code unaffected), then camel,
-# then the GROK_SESSION_ID env Grok injects into every hook.
+# then type-specific environment variables.
 INPUT=$(cat 2>/dev/null || true)
 SESSION_ID=""
 if [ -n "$INPUT" ]; then
@@ -80,36 +80,42 @@ if [ -n "$INPUT" ]; then
     | sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)
 fi
-[ -z "$SESSION_ID" ] && SESSION_ID="${GROK_SESSION_ID:-}"
+if [ -z "$SESSION_ID" ]; then
+  case "$TYPE" in
+    codex) SESSION_ID="${CODEX_THREAD_ID:-}" ;;
+    claude-code) SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}" ;;
+    grok-build) SESSION_ID="${GROK_SESSION_ID:-}" ;;
+  esac
+fi
 # Fallback so the instruction is still actionable even outside a hook flow.
 [ -z "$SESSION_ID" ] && SESSION_ID="unknown-$$"
 
 mkdir -p "$RUN_DIR" 2>/dev/null || true
 
-# --- Identify the enclosing Claude Code process. ---
+# --- Identify the enclosing agent process. ---
 # Reuse the shared agent-process resolver (#92) instead of a local ps-walk: it
 # checks both the `comm` name and argv[0] basename against the type's binaries,
 # which is more robust to wrapper/launch shapes than matching only "claude".
 # Empty when no agent ancestor is found (detached / sandboxed) — in that case
 # the instance id degrades to the bare session_id and the dedup step is skipped.
-CC_PID=$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)
+AGENT_PID=$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)
 
-# Per-process instance id (see instance-id.sh): "<session_id>.<cc_pid>", or the
-# bare session_id when cc_pid is unresolved. This — not the bare session_id — is
+# Per-process instance id (see instance-id.sh): "<session_id>.<agent_pid>", or the
+# bare session_id when agent_pid is unresolved. This — not the bare session_id — is
 # what keys the watcher pidfile / watermark / actas owner, so parallel
 # --continue/--resume processes that share a session_id stay isolated (#93).
 # The cc-instance dedup record and the emitted watch.sh directive both use it.
-INSTANCE_ID="$(agmsg_instance_id_from_pid "$SESSION_ID" "$CC_PID")"
+INSTANCE_ID="$(agmsg_instance_id_from_pid "$SESSION_ID" "$AGENT_PID")"
 
 # --- Cleanup of stale cc-instance files and their orphan watchers. ---
-# A cc-instance.<pid> whose CC pid is dead is left over from a previous CC.
+# A cc-instance.<pid> whose agent pid is dead is left over from a previous process.
 # Before removing it, optionally kill the watcher bound to its last
 # session_id — but only if that session_id isn't still referenced by a
 # LIVE cc-instance file. The same session_id can move from one CC pid to
 # another (e.g. on `claude --continue` / `--resume`), so a dead-pid record
 # alone is not evidence the session is gone.
 
-# First pass: collect session_ids that are still referenced by a LIVE CC.
+# First pass: collect session_ids that are still referenced by a LIVE agent.
 live_sids=""
 for f in "$RUN_DIR"/cc-instance.*; do
   [ -f "$f" ] || continue
@@ -177,7 +183,6 @@ actas_lock_gc_stale >/dev/null 2>&1 || true
 # actas/join/whoami can recover it without a stable session_id — the key that
 # makes this work for Codex too. Drop markers whose agent process has died.
 agmsg_marker_gc_stale 2>/dev/null || true
-AGENT_PID=$(agmsg_agent_pid "$TYPE" 2>/dev/null || true)
 [ -n "$AGENT_PID" ] && agmsg_write_project_marker "$AGENT_PID" "$PROJECT" 2>/dev/null || true
 
 # Garbage-collect stream watermarks (#107) and readiness sentinels (#108) whose
@@ -198,9 +203,9 @@ for f in "$RUN_DIR"/ready.*; do
 done
 
 
-# --- Dedup against the previous watcher in this CC instance. ---
-if [ -n "$CC_PID" ]; then
-  STATE="$RUN_DIR/cc-instance.$CC_PID"
+# --- Dedup against the previous watcher in this agent instance. ---
+if [ -n "$AGENT_PID" ]; then
+  STATE="$RUN_DIR/cc-instance.$AGENT_PID"
   if [ -f "$STATE" ]; then
     # Records the previous instance id this CC attached to. Comparing/killing
     # by instance id (not bare session_id) keeps the prev_pidfile lookup aligned
@@ -220,7 +225,7 @@ if [ -n "$CC_PID" ]; then
 fi
 
 # --- Skip directive when a watcher is already alive for this instance. ---
-# /compact re-fires SessionStart within the same CC process and session_id, so
+# /compact re-fires SessionStart within the same agent process and session_id, so
 # INSTANCE_ID is identical to the already-running watcher's.  Without this
 # guard the agent spawns a second Monitor whose watch.sh kills the incumbent,
 # the old Monitor task emits "stream ended", and the agent loops trying to

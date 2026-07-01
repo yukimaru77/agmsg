@@ -39,6 +39,16 @@ if [ -n "$INPUT" ]; then
   SESSION_ID=$(printf '%s' "$INPUT" \
     | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)
+  [ -z "$SESSION_ID" ] && SESSION_ID=$(printf '%s' "$INPUT" \
+    | sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -1)
+fi
+if [ -z "$SESSION_ID" ]; then
+  case "$TYPE" in
+    codex) SESSION_ID="${CODEX_THREAD_ID:-}" ;;
+    claude-code) SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}" ;;
+    grok-build) SESSION_ID="${GROK_SESSION_ID:-}" ;;
+  esac
 fi
 [ -z "$SESSION_ID" ] && exit 0
 

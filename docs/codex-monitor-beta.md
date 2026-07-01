@@ -1,7 +1,13 @@
-# Codex Monitor Beta
+# Legacy Codex Monitor Bridge
 
-Codex does not expose Claude Code's Monitor tool. agmsg's Codex monitor beta
-approximates the same experience by launching Codex through an app-server bridge.
+> Current Codex monitor delivery follows the same contract as Claude Code:
+> `SessionStart` emits an `AGMSG-DIRECTIVE`, the host starts `watch.sh` as a
+> persistent Monitor task, and `watch.sh` streams SQLite message rows into the
+> session. This page describes the old app-server bridge retained only for
+> legacy compatibility/debugging.
+
+Before Codex exposed Monitor tools, agmsg approximated the same experience by
+launching Codex through an app-server bridge.
 
 > ⚠️ **Experimental beta — read before enabling.** This changes how Codex starts.
 > Enabling monitor mode prints a shell function that makes `codex` route through

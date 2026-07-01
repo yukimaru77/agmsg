@@ -60,9 +60,9 @@ AGENT_TYPE=""  # claude-code, codex, gemini, antigravity — passed via --agent-
 
 configure_codex_sandbox() {
   # --- Configure Codex sandbox (if Codex is installed) ---
-  # The Codex bridge (beta) writes pidfiles/sockets/request files under the
-  # skill's db/, teams/, run/ dirs; Codex's sandbox blocks those writes unless
-  # they are listed as writable_roots. See docs/codex-monitor-beta.md.
+  # Codex monitor mode runs watch.sh, which writes pidfiles and SQLite WAL files
+  # under the skill's db/, teams/, run/ dirs. Codex's sandbox blocks those writes
+  # unless they are listed as writable_roots.
   local code_config="$HOME/.codex/config.toml"
   if [ ! -f "$code_config" ]; then
     return 0
@@ -291,16 +291,14 @@ if [ "$UPDATE_ONLY" = true ]; then
   cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
   chmod +x "$SKILL_DIR/scripts/"*.sh
   chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
-  # Refresh the Codex monitor shim (~/.agents/bin/codex) if it's ours. --update
-  # cp's the new codex-shim-install.sh but does not re-run it, so a shim from an
-  # older install keeps its stale baked exec path after the
-  # types/ -> scripts/drivers/types/ move. Re-running install regenerates it with
-  # the new path; install is idempotent and overwrites only an agmsg shim (a
-  # user's own codex binary fails is_agmsg_shim and is left untouched).
+  # Refresh the legacy Codex compatibility shim (~/.agents/bin/codex) if it's
+  # ours. Native Codex monitor mode no longer needs a launch shim, but refreshing
+  # an existing agmsg shim makes it pass through to the real Codex binary instead
+  # of keeping the old app-server bridge behavior.
   CODEX_SHIM="$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh"
   if [ -x "$CODEX_SHIM" ] && AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" status 2>/dev/null | grep -q '^installed:'; then
     AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
-      && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+      && echo "  + refreshed legacy Codex shim (~/.agents/bin/codex)"
   fi
   install_windows_helpers
   INSTALLED_VERSION="$(agmsg_source_version)"
@@ -361,12 +359,12 @@ cp "$SCRIPT_DIR/plugins/README.md" "$SKILL_DIR/plugins/README.md" 2>/dev/null ||
 cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
 chmod +x "$SKILL_DIR/scripts/"*.sh
 chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
-# Re-point an existing Codex monitor shim at the new path on a reinstall over an
-# older layout (no-op when no agmsg shim is present). See the --update block above.
+# Re-point an existing Codex compatibility shim at the new path on a reinstall
+# over an older layout (no-op when no agmsg shim is present).
 CODEX_SHIM="$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh"
 if [ -x "$CODEX_SHIM" ] && AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" status 2>/dev/null | grep -q '^installed:'; then
   AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
-    && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+    && echo "  + refreshed legacy Codex shim (~/.agents/bin/codex)"
 fi
 install_windows_helpers
 

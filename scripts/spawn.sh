@@ -8,7 +8,8 @@ set -euo pipefail
 #      actas flow just claims the role instead of prompting for a team),
 #   2. opens a place to run it — a tmux pane/window when run inside tmux,
 #      otherwise an OS terminal window,
-#   3. launches the agent CLI there with `/agmsg actas <name>` as its
+#   3. launches the agent CLI there with the agent type's agmsg command
+#      (`/agmsg actas <name>` for Claude Code, `$agmsg actas <name>` for Codex) as its
 #      initial prompt, so the new agent comes up already registered and
 #      addressable.
 #
@@ -25,8 +26,8 @@ set -euo pipefail
 #                      boot prompt becomes the actas slash command followed
 #                      (newline-separated) by <text>, so the new agent claims
 #                      its identity AND acts on the task in its first turn —
-#                      handy for a codex peer (no Monitor), where a message
-#                      sent after spawn would never reach the idle session.
+#                      handy when you want the spawned peer to start work
+#                      immediately after claiming the role.
 #                      An empty string (`--boot-prompt ""`) means no task.
 #   --project <path>   project to launch in (default: $PWD)
 #   --team <team>      team to join <name> into (default: auto-resolved from
@@ -59,8 +60,8 @@ set -euo pipefail
 #
 # Readiness: by default spawn blocks until the new agent's watcher attaches and
 # is receiving (it prints `status=ready ...`), so a leader can safely send work
-# right after spawn returns without racing the agent's cold start. Codex has no
-# Monitor, so the wait is skipped for codex.
+# right after spawn returns without racing the agent's cold start. Types with
+# monitor=no skip this wait.
 #
 # Scope note: spawnable types are those whose manifest declares `spawnable=yes`;
 # macOS is the primary target, Linux and
@@ -296,8 +297,8 @@ AGMSG_RESOLVE_PROJECT=0 "$SCRIPT_DIR/join.sh" "$TEAM" "$NAME" "$AGENT_TYPE" "$PR
 # Automation (TCC) permission prompts users otherwise have to approve.
 #
 # The agent CLIs accept an initial prompt as a positional argument and submit
-# it as the session's first message; passing the slash command makes the new
-# agent run `/agmsg actas <name>` on boot. We cd into the project first so a
+# it as the session's first message; passing the agmsg command makes the new
+# agent run `actas <name>` on boot. We cd into the project first so a
 # cross-project spawn lands in the right tree, and drop into an interactive
 # shell afterwards so the window/pane stays open with the agent's final output.
 # The slash command is named after the installed command, which the user may
@@ -307,10 +308,10 @@ AGMSG_RESOLVE_PROJECT=0 "$SCRIPT_DIR/join.sh" "$TEAM" "$NAME" "$AGENT_TYPE" "$PR
 #
 # When --boot-prompt is given, append the task newline-separated so the agent claims
 # its identity AND acts on the task in the same first turn. This is the only way
-# to hand a one-shot goal to a codex peer, which has no Monitor and so never
-# notices a message sent after it goes idle (see docs/codex-monitor-beta.md).
+# to hand a one-shot goal to a peer while it claims its identity.
 CMD_NAME="$(basename "$SKILL_DIR")"
-ACTAS_PROMPT="/${CMD_NAME} actas ${NAME}"
+COMMAND_PREFIX="$(agmsg_type_get "$AGENT_TYPE" command_prefix "/")"
+ACTAS_PROMPT="${COMMAND_PREFIX}${CMD_NAME} actas ${NAME}"
 if [ -n "$PROMPT" ]; then
   ACTAS_PROMPT="${ACTAS_PROMPT}
 ${PROMPT}"
@@ -496,10 +497,8 @@ place_and_launch() {
 # cold-start window (before the watcher attaches) and lose it.
 #
 # Types with `monitor=no` do not produce a spawn-awaitable readiness sentinel, so
-# skip the wait. That covers types with no Monitor at all (codex) AND types whose
-# watcher attaches via the agent's own launch rather than a spawn-time sentinel
-# (grok-build, whose monitor mode is real but not awaitable here) — receive there
-# is poll-based or agent-launched anyway.
+# skip the wait. That covers types with no Monitor at all and types whose watcher
+# attaches via a non-awaitable launch path.
 READY_PATH="$(agmsg_ready_path "$TEAM" "$NAME")"
 if [ "$(agmsg_type_get "$AGENT_TYPE" monitor)" = "no" ] && [ "$WAIT_READY" = "1" ]; then
   WAIT_READY=0

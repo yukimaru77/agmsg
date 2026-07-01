@@ -35,7 +35,7 @@ const agents = fs.readdirSync(typesDir)
     const c = parseConf(path.join(typesDir, name, "type.conf"));
     const meta = META[name] || { label: name, logo: null, blurb: "" };
     const modes = (c.delivery_modes || "").split(/\s+/).filter((m) => m && m !== "off");
-    const status = name === "codex" ? "bridge" : c.monitor === "yes" ? "native" : "rule-file";
+    const status = c.monitor === "yes" ? "native" : "rule-file";
     return {
       name,
       label: meta.label,

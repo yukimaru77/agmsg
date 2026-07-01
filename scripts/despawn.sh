@@ -14,7 +14,7 @@ set -euo pipefail
 # member's watcher (watch.sh) sees it, drops its own role (releasing the actas
 # lock) and closes its own tmux pane — ending its CLI. We block until the lock
 # is released, up to --timeout (default 30s); on timeout the member didn't
-# respond (dead watcher, or a codex member with no Monitor) — re-run with
+# respond (dead watcher or closed session) — re-run with
 # --force.
 #
 # --force: skip the message and tear the member down from here using the
@@ -84,7 +84,7 @@ fi
 state="$(actas_lock_state "$TEAM" "$NAME" "" 2>/dev/null || echo free)"
 case "$state" in
   free)
-    echo "despawn: '$NAME' holds no live actas lock — nothing to confirm a teardown against (a codex member has no watcher; a tmux member may already be gone). If a window remains, use --force." >&2
+    echo "despawn: '$NAME' holds no live actas lock — nothing to confirm a teardown against (its watcher may be gone already). If a window remains, use --force." >&2
     rm -f "$SPAWN_REC" 2>/dev/null || true
     echo "status=ok name=$NAME team=$TEAM note=no-live-lock"
     exit 0

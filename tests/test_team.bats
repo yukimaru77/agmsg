@@ -218,7 +218,10 @@ teardown() {
 
 @test "whoami: defaults to claude-code when no env vars set" {
   bash "$SCRIPTS/join.sh" myteam alice claude-code /tmp/proj
-  run bash "$SCRIPTS/whoami.sh" /tmp/proj
+  run env -u CLAUDE_CODE_SESSION_ID -u CODEX_SANDBOX -u CODEX_THREAD_ID \
+    -u GEMINI_CLI -u ANTIGRAVITY -u OPENCODE_SESSION_ID -u GROK_SESSION_ID \
+    AGMSG_DISABLE_PROC_DETECT=1 \
+    bash "$SCRIPTS/whoami.sh" /tmp/proj
   [ "$status" -eq 0 ]
   [[ "$output" =~ "agent=alice" ]]
   [[ "$output" =~ "type=claude-code" ]]

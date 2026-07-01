@@ -1,177 +1,198 @@
 ---
 name: agmsg
-description: Cross-agent messaging via SQLite. Send messages between Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, and other agents. No daemon, no network, no dependencies beyond bash and sqlite3.
+description: Cross-agent messaging via SQLite. Send messages between Claude Code, Codex, Gemini CLI, and other agents. No daemon, no network, no dependencies beyond bash and sqlite3.
 ---
 
-# Agent Messaging
+Agent messaging command. **IMPORTANT: Always use the provided scripts. NEVER directly read or edit config files, DB, or team data. There is NO register.sh — use join.sh to join a team.**
 
-**IMPORTANT: Always use the provided scripts. NEVER directly read or edit config files, DB, or team data. There is NO register.sh — use join.sh to join a team.**
+## Identity
 
-## How to use
+If you already know your AGENT and TEAMS from a previous `$agmsg` call in this session, skip to **Execute** below.
 
-### Step 0: First-run bootstrap
+Otherwise, run: `~/.agents/skills/agmsg/scripts/whoami.sh "$(pwd)" codex`
 
-agmsg keeps its SQLite database, team registry, and runtime state under `~/.agents/skills/agmsg/`. The `./install.sh` install path creates that tree; the Claude Code plugin install path does not (the plugin marketplace flow only drops the skill content into `~/.claude/plugins/cache/`). Before any other command, bootstrap if needed:
+Four possible outputs:
 
-```bash
-if [ ! -d ~/.agents/skills/agmsg ]; then
-  # Locate the plugin install script (any version), run it once.
-  installer=$(ls ~/.claude/plugins/cache/fujibee-agmsg/agmsg/*/install.sh 2>/dev/null | head -1)
-  if [ -n "$installer" ]; then
-    bash "$installer" --cmd agmsg
-  else
-    echo "agmsg not installed. Either:" >&2
-    echo "  - run ./install.sh in the agmsg repo, or" >&2
-    echo "  - install via /plugin marketplace add fujibee/agmsg && /plugin install agmsg@fujibee-agmsg" >&2
-    exit 1
-  fi
-fi
-```
+**A) Single identity:**
+`agent=<name> teams=<t1,t2,...> type=codex project=<path>`
+-> Remember AGENT and TEAMS, then go to **Execute**.
 
-After this runs once, `~/.agents/skills/agmsg/` is populated and you can skip Step 0 on future invocations.
+**B) Multiple identities:**
+`multiple=true agents=<n1,n2,...> teams=<t1,t2,...> type=codex project=<path>`
+-> Ask the user which agent name to use for this session, then go to **Execute**.
 
-### Step 1: Check identity
+**C) Not in a team:**
+`not_joined=true available_teams=<t1,t2,...>` (or `available_teams=none`)
+-> Show the user the available teams from the output, then:
 
-```bash
-~/.agents/skills/agmsg/scripts/whoami.sh "$(pwd)" <type>
-# type: claude-code, codex, gemini, antigravity, copilot
-# Returns: agent=... / multiple=true ... / suggest=true ... / not_joined=true ...
-```
+  > **First-time setup required.**
+  > Joining a team so this agent can send and receive messages.
+  > - **Team name**: a group of agents that can message each other (available: <list from output>)
+  > - **Agent name**: this agent's identity within the team
 
-### Step 2a: If not in a team — join one
+  1. Ask: "Enter a team name (joins existing or creates new)"
+  2. Ask: "Enter a name for this agent"
+  3. **You MUST use join.sh** — run: `~/.agents/skills/agmsg/scripts/join.sh <team> <agent_name> codex "$(pwd)"`
+  4. Show the result and explain:
 
-Ask the user for a team name and agent name, then run:
+  > **Joined!** You can now use `$agmsg` to check and send messages.
+  > - `$agmsg` — check inbox
+  > - `$agmsg send <agent> <message>` — send a message
+  > - `$agmsg team` — list team members
+  > - `$agmsg history` — message history
+  > - `$agmsg mode <monitor|turn|both|off>` — switch delivery mode
+  > - `$agmsg actas <name>` — switch to another role in this project (creates if needed)
+  > - `$agmsg drop <name>` — remove a role from this project
+  > - `$agmsg spawn <type> <name>` — launch a new agent in a tmux pane / terminal and have it actas <name>
+  > - `$agmsg despawn <name>` — tear down a member you spawned (graceful, or `--force`)
 
-```bash
-~/.agents/skills/agmsg/scripts/join.sh <team> <agent_name> <type> "$(pwd)"
-```
+  5. **REQUIRED — Do NOT skip this step.** Ask the user to pick a delivery mode using exactly this prompt:
 
-Do NOT manually edit config files. Always use join.sh.
+     ```
+     Choose delivery mode for incoming messages:
 
-### Step 2b: If already in a team — execute command
+       1) monitor — Real-time push (~5s latency)
+                     SessionStart hook + Monitor tool streams events.
+                     Recommended.
 
-**Default (no arguments): IMMEDIATELY check inbox. Do NOT ask what to do.**
+       2) turn    — Check inbox at the end of each assistant turn
+                     Stop hook pulls after each response.
 
-```bash
-# Check inbox (marks messages as read) — DEFAULT action
-~/.agents/skills/agmsg/scripts/inbox.sh <team> <agent_id>
+       3) both    — monitor primary, turn as fallback
+                     Redundant safety net.
 
-# Send a message
-~/.agents/skills/agmsg/scripts/send.sh <team> <from_agent> <to_agent> "<message>"
+       4) off     — No automatic delivery
+                     Manual $agmsg only.
 
-# Message history
-~/.agents/skills/agmsg/scripts/history.sh <team> [agent_id] [limit]
+     [1]:
+     ```
 
-# List team members
-~/.agents/skills/agmsg/scripts/team.sh <team>
+     - **Wait for the user's answer before proceeding.** Empty input means `1` (monitor).
+     - Map the chosen number to a mode and run:
+       `~/.agents/skills/agmsg/scripts/delivery.sh set <mode> codex "$(pwd)"`
+     - Read the `AGMSG-DIRECTIVE` block printed by `delivery.sh` and follow it: use Codex's Monitor tools to start or stop the watcher as instructed.
 
-# Leave a team
-~/.agents/skills/agmsg/scripts/leave.sh <team> <agent_id>
+  6. Then check inbox for the newly joined team.
 
-# Rename a team (moves dir, updates config + messages).
-# After renaming, each existing member should re-run whoami.sh to refresh
-# their cached team name in any running session.
-~/.agents/skills/agmsg/scripts/rename-team.sh <old_team> <new_team>
+**D) Suggestions for reuse:**
+`suggest=true agents=<n1,n2,...> teams=<t1,t2,...> type=codex project=<path> available_teams=<t1,t2,...>`
+-> No exact registration exists for this project, but there are same-type agent names registered elsewhere.
 
-# Show the installed version — the git-describe provenance string recorded at
-# install time (tag + commits-since + abbreviated commit, plus -dirty when
-# installed from a tree with uncommitted changes). See #117.
-~/.agents/skills/agmsg/scripts/version.sh
+  1. Show the suggested agent names to the user.
+  2. Ask whether to reuse one of those names or choose a new one.
+  3. Ask for the team name to join (existing or new).
+  4. Run: `~/.agents/skills/agmsg/scripts/join.sh <team> <agent_name> codex "$(pwd)"`
+  5. Then continue with the normal post-join flow above.
 
-# Clear registrations for the current project/type.
-# A trailing <session_id> additionally releases any actas exclusivity locks
-# this session held on <agent_id> so peers can pick them up immediately.
-~/.agents/skills/agmsg/scripts/reset.sh "$(pwd)" <type> [agent_id] [session_id]
+## Execute
 
-# Set delivery mode for this project.
-#   monitor — real-time push via SessionStart + Monitor tool (claude-code only)
-#   turn    — Stop-hook pulls at the end of each assistant turn
-#   both    — monitor primary, turn as fallback
-#   off     — no automatic delivery
-~/.agents/skills/agmsg/scripts/delivery.sh set <mode> <type> "$(pwd)"
-~/.agents/skills/agmsg/scripts/delivery.sh status <type> "$(pwd)"
+**Only use scripts in `~/.agents/skills/agmsg/scripts/` — do not read or modify files under `teams/` or `db/` directly.**
 
-# Multiple roles per project (one CC = one active role).
-# Claude Code: `actas` claims an exclusivity lock for <name> across sessions
-# and restarts the Monitor filtered to <name> only; peer watchers stop
-# subscribing to <name> while this session holds the lock. `drop` releases.
-# Codex: actas is send-side only (no stable session_id during slash commands
-# → no peer-visible lock). See README "Codex caveat" for details.
-~/.agents/skills/agmsg/scripts/actas-claim.sh "$(pwd)" <type> <name> "$session_id"
-~/.agents/skills/agmsg/scripts/reset.sh "$(pwd)" <type> <name> "$session_id"
+**Ensure monitor is running first.** Before processing any subcommand below, check whether this session already has an `agmsg inbox stream` Monitor task. If not, and the project's delivery mode is `monitor` or `both` (check via `~/.agents/skills/agmsg/scripts/delivery.sh status codex "$(pwd)"`), invoke Codex's Monitor start tool now:
 
-# (Both of the above are normally driven by `/agmsg actas <name>` and
-#  `/agmsg drop <name>` slash commands, which also handle the Monitor
-#  TaskStop + relaunch dance described in the cmd template.)
+- command: `~/.agents/skills/agmsg/scripts/watch.sh $CODEX_THREAD_ID "$(pwd)" codex`
+- description: `agmsg inbox stream`
+- persistent: true
 
-# Spawn a NEW agent process that takes an actas identity on boot.
-# Pre-joins <name> to a team, then launches the agent CLI in a tmux pane/window
-# (when run inside tmux) or a new OS terminal, with `/agmsg actas <name>` as the
-# initial prompt. By default it BLOCKS until the new agent's watcher attaches
-# (prints `status=ready`), so a leader can send work right after spawn returns
-# without losing it to the agent's cold start. claude-code/codex only; macOS
-# primary, Linux/Windows best-effort. Non-tmux + no usable terminal (headless)
-# errors out.
-#   --project <path>     project to launch in (default: $PWD)
-#   --team <team>        team to join into (default: auto-resolved from project)
-#   --window             new tmux window instead of splitting the current one
-#   --split h|v          tmux split direction (default h)
-#   --terminal <tmpl>    terminal command template ({cmd} = path to the boot
-#                        script) for the non-tmux path; overrides $AGMSG_TERMINAL
-#                        / config spawn.terminal. macOS default uses `open -a`
-#                        (no Automation/TCC permission prompt).
-#   --no-wait            don't block on readiness (fire-and-forget)
-#   --ready-timeout N    seconds to wait for readiness (default 90; on timeout
-#                        prints status=timeout and exits 3). Codex skips the
-#                        wait (it has no Monitor).
-#   --boot-prompt <text>      hand the new agent an initial task: the boot prompt
-#                        becomes the actas command followed (newline-separated)
-#                        by <text>, so it claims its identity AND starts the task
-#                        in its first turn. The only way to give a one-shot goal
-#                        to a codex peer (no Monitor → a post-spawn send to its
-#                        idle session is never noticed).
-~/.agents/skills/agmsg/scripts/spawn.sh <claude-code|codex> <name> [options]
+If this Codex build does not expose Monitor tools, say that native monitor delivery cannot run in this session and fall back to manual `$agmsg` checks or `mode turn`.
 
-# Tear down a spawned member — the inverse of spawn.
-# Default (graceful): sends a `ctrl:despawn` control message to <name>; the
-# member's watcher drops its own role (releasing the actas lock + registration)
-# and closes its own tmux pane, ending the agent. Blocks until the lock releases
-# (--timeout, default 30s) then prints `status=ok`; on timeout prints
-# status=timeout and exits 3 (retry with --force). Only an exclusive watcher
-# dedicated to <name> acts on it — the despawning session is never torn down.
-# --force: skip the message and tear the member down from the placement recorded
-# at spawn time (kill its tmux pane/window, drop its registration) — for a dead
-# watcher or a codex member (no Monitor). A hand-started member with no placement
-# record can't be --forced.
-#   --force              tear down from the recorded placement, no message
-#   --timeout N          seconds to wait for graceful teardown (default 30)
-~/.agents/skills/agmsg/scripts/despawn.sh <team> <from> <name> [--force] [--timeout N]
-```
+**Sandbox compatibility.** When Codex sandboxing is enabled, `watch.sh` (monitor mode) needs write access under `~/.agents/skills/agmsg/` for pidfiles and SQLite WAL files. The direct installer configures Codex writable roots when `~/.codex/config.toml` exists; if monitor fails with write/permission errors, allow writes to that skill directory.
 
-## Sandbox compatibility (Claude Code)
+**If no arguments provided (DEFAULT action — always do this when the command is invoked without arguments):**
+1. **IMMEDIATELY** run inbox check for each TEAM: `~/.agents/skills/agmsg/scripts/inbox.sh $TEAM $AGENT`
+2. Do NOT ask the user what to do — just run the inbox check.
+3. If there are messages, read and respond appropriately. To reply:
+   `~/.agents/skills/agmsg/scripts/send.sh $TEAM $AGENT <to_agent> "<message>"`
 
-When Claude Code's sandbox is enabled, `watch.sh` (monitor mode) runs inside the sandbox and needs to write pidfiles and SQLite WAL files under `~/.agents/skills/agmsg/`. Add an allowlist entry to `~/.claude/settings.json` (or project-level `.claude/settings.local.json`):
+If argument is "history":
+1. Run: `~/.agents/skills/agmsg/scripts/history.sh $TEAM $AGENT`
 
-```json
-{
-  "sandbox": {
-    "filesystem": {
-      "allowWrite": [
-        "~/.agents/skills/agmsg/"
-      ]
-    }
-  }
-}
-```
+If argument is "team":
+1. For each TEAM, run: `~/.agents/skills/agmsg/scripts/team.sh $TEAM`
 
-The allowlist merges across scopes and takes effect immediately — no restart needed. If agmsg was installed under a custom command name (e.g. `m`), adjust the path accordingly.
+If argument starts with "send" (e.g. "send misaki check the server"):
+1. Parse target agent and message from the arguments
+2. Determine which team the target agent belongs to, then run:
+   `~/.agents/skills/agmsg/scripts/send.sh $TEAM $AGENT <to_agent> "<message>"`
 
-**Note on `BASH_SOURCE`**: The sandboxed Bash tool runs commands via pipe/eval, so `BASH_SOURCE[0]` is empty inside sourced functions like `storage.sh`. This is handled internally — `watch.sh` resolves `SKILL_DIR` from `$0` (which works correctly when invoked as a command), and `storage.sh` falls back to that value. No user configuration needed.
+If argument is "config":
+1. Run: `~/.agents/skills/agmsg/scripts/config.sh show`
+2. Show the output to the user.
 
-## Architecture
+If argument starts with "config set" (e.g. "config set hook.check_interval 30"):
+1. Parse key and value from the arguments.
+2. Run: `~/.agents/skills/agmsg/scripts/config.sh set <key> <value>`
 
-- **Storage**: SQLite with WAL mode in `~/.agents/skills/agmsg/db/messages.db`
-- **Teams**: `~/.agents/skills/agmsg/teams/<name>/config.json`
-- **Concurrency**: WAL allows multiple readers + 1 writer without conflicts
-- **No daemon**: Direct DB access via `sqlite3` CLI
-- **Dependencies**: bash, sqlite3 (no python3 required)
+If argument starts with "actas" followed by an agent name (e.g. "actas alice"):
+1. Parse the new role name.
+2. Run `~/.agents/skills/agmsg/scripts/identities.sh "$(pwd)" codex` to see whether the role is already registered for this (project, type).
+3. If the name does not appear in the output, join under the existing team. Read TEAMS from the in-session whoami state (it may be a single team or comma-separated). For a single team, run `~/.agents/skills/agmsg/scripts/join.sh <team> <name> codex "$(pwd)"`. For multiple teams, ask the user which team to join the new role into.
+4. **Pre-flight claim** the actas exclusivity lock so this role isn't already owned by another live session: `~/.agents/skills/agmsg/scripts/actas-claim.sh "$(pwd)" codex <name> "$CODEX_THREAD_ID"`. Read the `status=` line of the output:
+   - `status=ok ...`: proceed to step 5.
+   - `status=held team=<team> owner=<sid>`: another live session currently owns `<name>` in `<team>`. Tell the user: "Cannot actas as `<name>` — it is held by session `<sid>` in team `<team>`. Run `$agmsg drop <name>` in that session first, then retry." Then abort — do NOT touch the running Monitor.
+   - `status=not_registered`: shouldn't happen if step 3 ran; treat as an error.
+5. **Switch receive too — exclusive role mode.**
+   a. Use Codex's Monitor list tool. Find any task whose description begins with "agmsg inbox stream".
+   b. **If a matching task is found**: stop it with Codex's Monitor stop tool.
+   c. **If no matching task is found**: skip the stop step entirely.
+   d. Invoke a fresh Monitor regardless of whether step b or c applied:
+      - command: `~/.agents/skills/agmsg/scripts/watch.sh $CODEX_THREAD_ID "$(pwd)" codex <name>`
+      - description: `agmsg inbox stream (acting as <name>)`
+      - persistent: true
+   The 4th argument to `watch.sh` restricts the subscription to messages addressed to `<name>` only — other roles' inbound messages stop reaching this session until another `actas` or session end.
+6. Set the session's active FROM to `<name>` — use `<name>` in every `send.sh` call for the rest of this session.
+7. Tell the user: "Now acting as `<name>`. Sends use `<name>` as from; receive restricted to `<name>` only."
+
+If argument starts with "drop" followed by an agent name (e.g. "drop alice"):
+1. Parse the role name.
+2. Run `~/.agents/skills/agmsg/scripts/reset.sh "$(pwd)" codex <name> "$CODEX_THREAD_ID"` to remove only that role's registration for this project. If the role has no other registrations left, reset.sh also drops it from the team config. The 4th argument releases any actas exclusivity locks this session held on the role so peers can pick it up immediately.
+3. If the session's active FROM was `<name>`, clear that state. Then:
+   a. Use Codex's Monitor list tool. Find any task whose description begins with "agmsg inbox stream".
+   b. **If a matching task is found**: stop it with Codex's Monitor stop tool.
+   c. **If no matching task is found**: skip the stop step.
+   d. Invoke a fresh Monitor with the default subscription:
+      - command: `~/.agents/skills/agmsg/scripts/watch.sh $CODEX_THREAD_ID "$(pwd)" codex`
+      - description: `agmsg inbox stream`
+      - persistent: true
+4. Tell the user: "Dropped role `<name>` from this project."
+
+If argument starts with "spawn" (e.g. "spawn claude-code alice", "spawn codex reviewer --window"):
+1. Parse `<type>` (must be `claude-code` or `codex`), `<name>`, and any options (`--project`, `--team`, `--window`, `--split h|v`, `--terminal`, `--no-wait`, `--ready-timeout <secs>`).
+2. Run: `~/.agents/skills/agmsg/scripts/spawn.sh <type> <name> --project "$(pwd)" [options]`
+   - spawn.sh pre-joins `<name>`, then opens a tmux pane/window (when this session is inside tmux) or a new OS terminal, and launches the target CLI with that type's agmsg command (`$agmsg actas <name>` for Codex, `/agmsg actas <name>` for Claude Code) as its initial prompt.
+   - By default it BLOCKS until the new agent's watcher attaches and prints `status=ready` — so you can message `<name>` right away. It prints `status=timeout` and exits 3 if not ready within `--ready-timeout` (default 90s); pass `--no-wait` for fire-and-forget.
+   - It refuses early if `<name>` is already held by another live session, if the target CLI is not installed, or if there is no tmux and no usable terminal (headless).
+3. Show the script's output. Do NOT stop or relaunch this session's own Monitor — spawn affects a separate, newly launched agent, not this session's subscription.
+
+If argument starts with "despawn" (e.g. "despawn reviewer", "despawn alice --force"):
+1. Parse `<name>` and any options (`--force`, `--timeout <secs>`). `despawn` is the inverse of `spawn` — it tears down a member you previously spawned.
+2. Determine which team `<name>` belongs to (as with `send`), then run:
+   `~/.agents/skills/agmsg/scripts/despawn.sh <team> $AGENT <name> [--force] [--timeout <secs>]`
+   - Default (graceful): sends a `ctrl:despawn` control message to `<name>`. The member's watcher drops its own role (releasing the actas lock + registration) and closes its own tmux pane, which ends the agent CLI. Blocks until the lock releases, up to `--timeout` (default 30s), then prints `status=ok`. On timeout it prints `status=timeout` and exits 3 — retry with `--force`.
+   - `--force`: skips the message and tears the member down from the placement recorded at spawn time — kills its tmux pane/window and drops its registration. Use when the member's watcher can't respond.
+3. Show the script's output. Do NOT stop or relaunch this session's own Monitor — despawn affects the spawned member, not this session's subscription.
+
+If argument is "mode" (no further args):
+1. Run: `~/.agents/skills/agmsg/scripts/delivery.sh status codex "$(pwd)"`
+2. Show the output to the user.
+
+If argument starts with "mode" followed by a mode name (e.g. "mode monitor"):
+1. Parse the mode (one of `monitor`, `turn`, `both`, `off`).
+2. Run: `~/.agents/skills/agmsg/scripts/delivery.sh set <mode> codex "$(pwd)"`
+3. Read the `AGMSG-DIRECTIVE` block in the command output and follow it using Codex's Monitor tools.
+
+If argument is "hook on" (legacy alias):
+1. Run: `~/.agents/skills/agmsg/scripts/delivery.sh set turn codex "$(pwd)"`
+2. Tell the user: "Delivery mode set to 'turn' (legacy hook on behavior). Consider using $agmsg mode monitor for real-time push."
+
+If argument is "hook off" (legacy alias):
+1. Run: `~/.agents/skills/agmsg/scripts/delivery.sh set off codex "$(pwd)"`
+2. Tell the user: "Delivery mode set to 'off'."
+
+If argument is "version":
+1. Run: `~/.agents/skills/agmsg/scripts/version.sh`
+2. Show the output — the installed version (git-describe provenance recorded at install time).
+
+If argument is "reset":
+1. Run: `~/.agents/skills/agmsg/scripts/reset.sh "$(pwd)" codex`
+2. Tell the user the result.

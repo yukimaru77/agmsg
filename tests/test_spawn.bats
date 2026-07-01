@@ -375,7 +375,7 @@ YAML
 
 @test "spawn: codex spawns the codex CLI" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" --no-wait
   [ "$status" -eq 0 ]
   boot="$(cat "$CAPTURE")"
   [ -f "$boot" ]
@@ -427,11 +427,15 @@ YAML
   [[ "$output" != *"status="* ]]
 }
 
-@test "spawn: codex skips the readiness wait (no Monitor)" {
+@test "spawn: codex waits for the readiness handshake" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  mkdir -p "$TEST_SKILL_DIR/run"
+  local ready="$TEST_SKILL_DIR/run/ready.myteam__reviewer"
+  run env -u TMUX bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" \
+    --ready-timeout 10 --terminal "touch $ready # {cmd}"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipping readiness wait"* ]]
+  [[ "$output" == *"status=ready"* ]]
+  [[ "$output" != *"skipping readiness wait"* ]]
 }
 
 @test "spawn: grok-build skips the readiness wait even without --no-wait (monitor=no)" {
@@ -452,9 +456,8 @@ YAML
 # --- initial prompt (--boot-prompt) ---
 # spawn folds an optional initial task into the agent's first prompt: the boot
 # prompt becomes the actas slash command followed (newline-separated) by the
-# task, so the new agent claims its identity AND starts the task in one turn —
-# the only way to hand a one-shot goal to a no-Monitor peer (codex). These tests
-# assert on the generated boot script the terminal template is handed (captured
+# task, so the new agent claims its identity AND starts the task in one turn.
+# These tests assert on the generated boot script the terminal template is handed (captured
 # via record.sh), the same way the actas-prompt tests above do.
 
 @test "spawn: --boot-prompt requires a task (missing arg errors)" {
@@ -480,7 +483,7 @@ YAML
 @test "spawn: --boot-prompt folds the initial task into the boot prompt (codex)" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
   run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" \
-    --boot-prompt "REVIEW_THE_DIFF"
+    --no-wait --boot-prompt "REVIEW_THE_DIFF"
   [ "$status" -eq 0 ]
   boot="$(cat "$CAPTURE")"
   [ -f "$boot" ]

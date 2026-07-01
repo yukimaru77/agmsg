@@ -28,6 +28,7 @@ run_watcher_for() {
   local sid="$1" out="$2" secs="$3"
   AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "$sid" "$PROJ" claude-code >"$out" 2>/dev/null 3>&- &
   local pid=$!
+  _wait_for_file "$TEST_SKILL_DIR/run/watch.$(_iid "$sid").watermark"
   sleep "$secs"
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
@@ -88,9 +89,9 @@ _wait_for_file_contains() {
   AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "$sid" "$PROJ" claude-code \
     >"$TEST_SKILL_DIR/out1.log" 2>/dev/null 3>&- &
   local w1=$!
-  sleep 1.5
+  _wait_for_file "$TEST_SKILL_DIR/run/watch.$(_iid "$sid").watermark"
   bash "$SCRIPTS/send.sh" team bob alice "M1-before-stop" >/dev/null
-  sleep 2
+  _wait_for_file_contains "$TEST_SKILL_DIR/out1.log" "M1-before-stop"
   kill "$w1" 2>/dev/null || true
   wait "$w1" 2>/dev/null || true
   grep -q "M1-before-stop" "$TEST_SKILL_DIR/out1.log"
@@ -99,7 +100,14 @@ _wait_for_file_contains() {
   bash "$SCRIPTS/send.sh" team bob alice "M2-in-gap" >/dev/null
 
   # Restart the SAME session_id — should resume from the persisted watermark.
-  run_watcher_for "$sid" "$TEST_SKILL_DIR/out2.log" 2
+  # Do not use run_watcher_for here: the watermark already exists from the
+  # first run, so readiness must be observed through the redelivered row.
+  AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "$sid" "$PROJ" claude-code \
+    >"$TEST_SKILL_DIR/out2.log" 2>/dev/null 3>&- &
+  local w2=$!
+  _wait_for_file_contains "$TEST_SKILL_DIR/out2.log" "M2-in-gap"
+  kill "$w2" 2>/dev/null || true
+  wait "$w2" 2>/dev/null || true
 
   # In-gap message is delivered on restart...
   grep -q "M2-in-gap" "$TEST_SKILL_DIR/out2.log"
@@ -115,9 +123,9 @@ _wait_for_file_contains() {
   AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "sess-fresh" "$PROJ" claude-code \
     >"$TEST_SKILL_DIR/fresh.log" 2>/dev/null 3>&- &
   local w=$!
-  sleep 1.5
+  _wait_for_file "$TEST_SKILL_DIR/run/watch.$(_iid sess-fresh).watermark"
   bash "$SCRIPTS/send.sh" team bob alice "M-live" >/dev/null
-  sleep 2
+  _wait_for_file_contains "$TEST_SKILL_DIR/fresh.log" "M-live"
   kill "$w" 2>/dev/null || true
   wait "$w" 2>/dev/null || true
 
@@ -210,7 +218,12 @@ _wait_for_file_contains() {
 
   [ "$(cat "$wm")" = "$initial" ]
 
-  run_watcher_for "$sid" "$TEST_SKILL_DIR/closed-redelivery.log" 2
+  AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "$sid" "$PROJ" claude-code \
+    >"$TEST_SKILL_DIR/closed-redelivery.log" 2>/dev/null 3>&- &
+  local w2=$!
+  _wait_for_file_contains "$TEST_SKILL_DIR/closed-redelivery.log" "M-after-closed-stdout"
+  kill "$w2" 2>/dev/null || true
+  wait "$w2" 2>/dev/null || true
   grep -q "M-after-closed-stdout" "$TEST_SKILL_DIR/closed-redelivery.log"
 }
 
@@ -231,10 +244,7 @@ _wait_for_file_contains() {
   local w=$!
   # Wait for the watcher to attach and signal readiness.
   local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    [ -e "$ready" ] && break
-    sleep 0.5
-  done
+  _wait_for_file "$ready"
   [ -e "$ready" ]
   kill "$w" 2>/dev/null || true
   wait "$w" 2>/dev/null || true
@@ -255,7 +265,7 @@ _wait_for_file_contains() {
   AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "sess-own" "$PROJ" claude-code alice \
     >/dev/null 2>&1 3>&- &
   local w=$! i
-  for i in 1 2 3 4 5 6 7 8 9 10; do [ -e "$ready" ] && break; sleep 0.5; done
+  _wait_for_file "$ready"
   # watch.sh stamps the instance id (composite under an agent ancestor).
   [ "$(cat "$ready")" = "$(_iid sess-own)" ]
   kill "$w" 2>/dev/null || true
@@ -419,7 +429,7 @@ _wait_pidfile() {
   local out="$BATS_TEST_TMPDIR/hc.out"
   AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "sess-hc" "$PROJ" claude-code >"$out" 2>/dev/null 3>&- &
   local pid=$!
-  sleep 2                     # > one poll interval; a spinning watcher would re-emit
+  _wait_for_file_contains "$out" "ERROR: cannot open message DB" || true
   kill "$pid" 2>/dev/null || true   # no-op if the healthcheck already exited
   wait "$pid" 2>/dev/null || true
   chmod 644 "$DB" 2>/dev/null || true

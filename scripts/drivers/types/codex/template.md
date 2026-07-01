@@ -88,11 +88,17 @@ Four possible outputs:
 
 **Only use scripts in `~/.agents/skills/__SKILL_NAME__/scripts/` — do not read or modify files under `teams/` or `db/` directly.**
 
-**Ensure monitor is running first.** Before processing any subcommand below, check whether this session already has an `agmsg inbox stream` Monitor task. If not, and the project's delivery mode is `monitor` or `both` (check via `~/.agents/skills/__SKILL_NAME__/scripts/delivery.sh status codex "$(pwd)"`), invoke Codex's Monitor start tool now:
+**Ensure monitor is running first.** Before processing any subcommand below, check whether this session already has an `agmsg inbox stream` Monitor task. If not, and the project's delivery mode is `monitor` or `both` (check via `~/.agents/skills/__SKILL_NAME__/scripts/delivery.sh status codex "$(pwd)"`), first run:
 
-- command: `~/.agents/skills/__SKILL_NAME__/scripts/watch.sh $CODEX_THREAD_ID "$(pwd)" codex`
+- `~/.agents/skills/__SKILL_NAME__/scripts/monitor-command.sh codex "$(pwd)"`
+
+Then invoke Codex's Monitor start tool with the command printed by that script:
+
+- command: `<printed command>`
 - description: `agmsg inbox stream`
 - persistent: true
+
+Pass the printed command verbatim. It already contains a literal session id; do not pass a command containing `$CODEX_THREAD_ID` to Monitor.
 
 If this Codex build does not expose Monitor tools, say that native monitor delivery cannot run in this session and fall back to manual `$__SKILL_NAME__` checks or `mode turn`.
 
@@ -136,9 +142,11 @@ If argument starts with "actas" followed by an agent name (e.g. "actas alice"):
    b. **If a matching task is found**: stop it with Codex's Monitor stop tool.
    c. **If no matching task is found**: skip the stop step entirely.
    d. Invoke a fresh Monitor regardless of whether step b or c applied:
-      - command: `~/.agents/skills/__SKILL_NAME__/scripts/watch.sh $CODEX_THREAD_ID "$(pwd)" codex <name>`
+      - first run: `~/.agents/skills/__SKILL_NAME__/scripts/monitor-command.sh codex "$(pwd)" <name>`
+      - command: `<printed command>`
       - description: `agmsg inbox stream (acting as <name>)`
       - persistent: true
+   Pass the printed command verbatim; do not pass `$CODEX_THREAD_ID` through Monitor.
    The 4th argument to `watch.sh` restricts the subscription to messages addressed to `<name>` only — other roles' inbound messages stop reaching this session until another `actas` or session end.
 6. Set the session's active FROM to `<name>` — use `<name>` in every `send.sh` call for the rest of this session.
 7. Tell the user: "Now acting as `<name>`. Sends use `<name>` as from; receive restricted to `<name>` only."
@@ -151,7 +159,8 @@ If argument starts with "drop" followed by an agent name (e.g. "drop alice"):
    b. **If a matching task is found**: stop it with Codex's Monitor stop tool.
    c. **If no matching task is found**: skip the stop step.
    d. Invoke a fresh Monitor with the default subscription:
-      - command: `~/.agents/skills/__SKILL_NAME__/scripts/watch.sh $CODEX_THREAD_ID "$(pwd)" codex`
+      - first run: `~/.agents/skills/__SKILL_NAME__/scripts/monitor-command.sh codex "$(pwd)"`
+      - command: `<printed command>`
       - description: `agmsg inbox stream`
       - persistent: true
 4. Tell the user: "Dropped role `<name>` from this project."

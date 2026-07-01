@@ -1554,6 +1554,22 @@ EOF
   [[ "$output" != *"monitor delivery will NOT start"* ]]
 }
 
+@test "monitor-command (codex): prints a literal session id for Monitor" {
+  run env CODEX_THREAD_ID=thread-literal bash "$SCRIPTS/monitor-command.sh" codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" == *"thread-literal"* ]]
+  [[ "$output" != *'$CODEX_THREAD_ID'* ]]
+}
+
+@test "monitor-command (codex): includes active_name for actas watcher" {
+  run env CODEX_THREAD_ID=thread-actas bash "$SCRIPTS/monitor-command.sh" codex "$TEST_PROJECT" alice
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"thread-actas"* ]]
+  [[ "$output" == *" alice"* ]]
+  [[ "$output" != *'$CODEX_THREAD_ID'* ]]
+}
+
 @test "delivery set off (codex): stops project watcher and emits stop directive" {
   skip_on_windows "watcher process kill under Git Bash (#182)"
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null

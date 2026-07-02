@@ -253,10 +253,36 @@ _wait_for_file_contains() {
 }
 
 @test "watch: a broad (non-actas) watcher does not create a ready sentinel" {
-  bash "$SCRIPTS/join.sh" team bob claude-code "$PROJ" >/dev/null
   run_watcher_for "sess-broad" "$TEST_SKILL_DIR/broad.log" 1.5
   [ ! -e "$TEST_SKILL_DIR/run/ready.team__alice" ]
-  [ ! -e "$TEST_SKILL_DIR/run/ready.team__bob" ]
+}
+
+@test "watch: a broad watcher refuses multiple registered agent names" {
+  bash "$SCRIPTS/join.sh" team bob claude-code "$PROJ" >/dev/null
+
+  run env AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "sess-multi-name" "$PROJ" claude-code
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"multiple identities registered"* ]]
+  [[ "$output" == *"alice,bob"* ]]
+  [[ "$output" == *"agmsg actas <name>"* ]]
+  [ ! -e "$TEST_SKILL_DIR/run/watch.$(_iid sess-multi-name).pid" ]
+  [ ! -e "$TEST_SKILL_DIR/run/watch.$(_iid sess-multi-name).watermark" ]
+}
+
+@test "watch: a broad watcher allows one agent name across multiple teams" {
+  skip_on_windows "watcher background launch under Git Bash (#182)"
+  bash "$SCRIPTS/join.sh" team2 alice claude-code "$PROJ" >/dev/null
+
+  AGMSG_WATCH_INTERVAL=1 bash "$SCRIPTS/watch.sh" "sess-same-name" "$PROJ" claude-code \
+    >"$TEST_SKILL_DIR/same-name.log" 2>/dev/null 3>&- &
+  local w=$!
+  _wait_for_file "$TEST_SKILL_DIR/run/watch.$(_iid sess-same-name).watermark"
+  bash "$SCRIPTS/send.sh" team2 bob alice "M-team2" >/dev/null
+  _wait_for_file_contains "$TEST_SKILL_DIR/same-name.log" "M-team2"
+  kill "$w" 2>/dev/null || true
+  wait "$w" 2>/dev/null || true
+
+  grep -q "M-team2" "$TEST_SKILL_DIR/same-name.log"
 }
 
 @test "watch: ready sentinel records the owner session_id" {

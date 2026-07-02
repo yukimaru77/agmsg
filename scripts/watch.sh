@@ -13,8 +13,10 @@ source "$(cd "$(dirname "$0")" && pwd)/lib/compat.sh"
 #
 # Behavior:
 #   - Resolves (team, agent) pairs for (project_path, agent_type) via
-#     identities.sh. By default, subscribes to messages addressed to any
-#     of those pairs.
+#     identities.sh. By default, subscribes to that agent only when the project
+#     has a single registered agent name for the type. If multiple names are
+#     registered, the caller must pass [active_name] (`agmsg actas <name>`) so
+#     concurrent sessions do not all receive every role's messages.
 #   - When [active_name] is given, narrows the subscription to only pairs
 #     whose agent name matches — useful for `actas` exclusive role mode.
 #   - A fresh session sets the high-water mark to the current MAX(id) at
@@ -163,6 +165,22 @@ trap 'exit 0' INT TERM HUP
 PAIRS="$("$SCRIPT_DIR/identities.sh" "$PROJECT_PATH" "$AGENT_TYPE")"
 if [ -n "$ACTIVE_NAME" ]; then
   PAIRS=$(printf '%s\n' "$PAIRS" | awk -v n="$ACTIVE_NAME" -F'\t' 'NF >= 2 && $2 == n')
+fi
+
+# A broad watcher is safe only when the project/type resolves to one logical
+# agent name. Multiple team memberships for the same agent are fine; multiple
+# names are ambiguous and cause duplicate delivery when several Codex/CC
+# sessions are open in the same project. Force the session to pick a role via
+# `actas`, which starts a narrowed watcher and claims the exclusivity lock.
+if [ -z "$ACTIVE_NAME" ] && [ -n "$PAIRS" ]; then
+  AGENT_NAMES=$(printf '%s\n' "$PAIRS" | awk -F'\t' 'NF >= 2 && $2 != "" { seen[$2] = 1 } END { for (name in seen) print name }' | sort)
+  AGENT_NAME_COUNT=$(printf '%s\n' "$AGENT_NAMES" | sed '/^$/d' | wc -l | tr -d ' ')
+  if [ "${AGENT_NAME_COUNT:-0}" -gt 1 ]; then
+    AGENT_NAME_LIST=$(printf '%s\n' "$AGENT_NAMES" | paste -sd, -)
+    cmd_prefix="$(agmsg_type_get "$AGENT_TYPE" command_prefix "/" 2>/dev/null || printf '/')"
+    printf 'agmsg watch: multiple identities registered for %s (%s); run `%sagmsg actas <name>` to choose one. Broad monitor not started.\n' "$PROJECT_PATH" "$AGENT_NAME_LIST" "$cmd_prefix"
+    exit 0
+  fi
 fi
 
 # Honor actas exclusivity locks. A (team, agent) pair currently owned by

@@ -138,7 +138,7 @@ fake_session() {
 @test "watch: excludes pairs held by another live session (stderr message)" {
   skip_on_windows "actas watcher liveness under Git Bash (#182)"
   fake_register T alice
-  fake_register T bob
+  fake_register T2 alice
   fake_session "sid-other" >/dev/null
   # Lock alice for sid-other (this test process pretends to be sid-other).
   echo "sid-other" > "$(actas_lock_path T alice)"

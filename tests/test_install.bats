@@ -619,7 +619,7 @@ PY
   grep -q "whoami.sh \"\$(pwd)\" hermes" "$FAKE_HOME/.hermes/skills/agmsg/SKILL.md"
 }
 
-@test "install: --update re-points an existing Codex monitor shim to the new path" {
+@test "install: --update removes an existing legacy Codex monitor shim for native Monitor" {
   HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg
   # Install the shim the way enabling Codex monitor mode would.
   HOME="$FAKE_HOME" bash "$SK/scripts/drivers/types/codex/codex-shim-install.sh" install >/dev/null
@@ -627,18 +627,19 @@ PY
   [ -f "$shim" ]
   grep -q '/scripts/drivers/types/codex/codex-shim.sh' "$shim"
 
-  # Simulate a shim baked by a pre-1.1.0 layout (stale exec path), keeping the
-  # agmsg marker so it is still recognized as ours.
-  local tmp; tmp="$(mktemp)"
-  sed 's#/scripts/drivers/types/codex/#/scripts/codex/#g' "$shim" > "$tmp"
-  mv "$tmp" "$shim"
-  grep -q '/scripts/codex/codex-shim.sh' "$shim"
-  ! grep -q '/scripts/drivers/types/codex/codex-shim.sh' "$shim"
-
-  # --update must regenerate it back to the post-move path.
+  # Native Monitor uses watch.sh directly. Leaving this PATH shim installed
+  # would route ordinary `codex resume` through the legacy app-server bridge.
   HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --update
-  grep -q '/scripts/drivers/types/codex/codex-shim.sh' "$shim"
-  ! grep -q '/scripts/codex/codex-shim.sh' "$shim"
+  [ ! -e "$shim" ]
+}
+
+@test "uninstall removes an agmsg-owned legacy Codex shim" {
+  HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" --cmd agmsg
+  HOME="$FAKE_HOME" bash "$SK/scripts/drivers/types/codex/codex-shim-install.sh" install >/dev/null
+  local shim="$FAKE_HOME/.agents/bin/codex"
+  [ -f "$shim" ]
+  HOME="$FAKE_HOME" bash "$SK/uninstall.sh" --yes >/dev/null
+  [ ! -e "$shim" ]
 }
 
 @test "install: --update does NOT create a Codex shim when none was installed" {

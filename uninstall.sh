@@ -213,6 +213,16 @@ if [ "$REMOVED_SQLITE_SHIM" = true ] && [ -f "$SQLITE_SHIM_CACHE" ]; then
   REMOVED=true
 fi
 
+# Native Monitor does not need the old PATH-level Codex bridge shim. Remove it
+# during uninstall so a later fresh install cannot accidentally rediscover and
+# refresh it. Marker-gated: an unrelated user-owned ~/.agents/bin/codex stays.
+CODEX_SHIM="$AGENTS_DIR/bin/codex"
+if [ -f "$CODEX_SHIM" ] && grep -q "Optional Codex entrypoint shim for agmsg monitor mode" "$CODEX_SHIM" 2>/dev/null; then
+  rm "$CODEX_SHIM"
+  echo "  - removed $CODEX_SHIM"
+  REMOVED=true
+fi
+
 # --- 3. Remove skill directories ---
 for SKILL_DIR in "${SKILL_DIRS[@]}"; do
   SKILL_NAME="$(basename "$SKILL_DIR")"

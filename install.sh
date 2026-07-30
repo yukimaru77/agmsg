@@ -314,16 +314,19 @@ if [ "$UPDATE_ONLY" = true ]; then
   cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
   chmod +x "$SKILL_DIR/scripts/"*.sh
   chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
-  # Refresh the Codex monitor shim (~/.agents/bin/codex) if it's ours. --update
-  # cp's the new codex-shim-install.sh but does not re-run it, so a shim from an
-  # older install keeps its stale baked exec path after the
-  # types/ -> scripts/drivers/types/ move. Re-running install regenerates it with
-  # the new path; install is idempotent and overwrites only an agmsg shim (a
-  # user's own codex binary fails is_agmsg_shim and is left untouched).
+  # Native-Monitor Codex must never keep the legacy PATH shim: it forces
+  # `codex resume` through the app-server bridge even though native Monitor no
+  # longer needs that bridge. Remove only an agmsg-owned shim; user binaries are
+  # protected by codex-shim-install.sh's marker check.
   CODEX_SHIM="$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh"
   if [ -x "$CODEX_SHIM" ] && AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" status 2>/dev/null | grep -q '^installed:'; then
-    AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
-      && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+    if grep -q '^monitor=yes$' "$SKILL_DIR/scripts/drivers/types/codex/type.conf"; then
+      AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" remove >/dev/null 2>&1 \
+        && echo "  - removed legacy Codex monitor shim (~/.agents/bin/codex)"
+    else
+      AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
+        && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+    fi
   fi
   install_windows_helpers
   INSTALLED_VERSION="$(agmsg_source_version)"
@@ -389,12 +392,17 @@ cp "$SCRIPT_DIR/uninstall.sh" "$SKILL_DIR/uninstall.sh" 2>/dev/null && chmod +x 
 cp "$SCRIPT_DIR/openai.yaml" "$SKILL_DIR/agents/openai.yaml" 2>/dev/null || true
 chmod +x "$SKILL_DIR/scripts/"*.sh
 chmod +x "$SKILL_DIR/scripts/drivers/types/codex/"*.sh 2>/dev/null || true
-# Re-point an existing Codex monitor shim at the new path on a reinstall over an
-# older layout (no-op when no agmsg shim is present). See the --update block above.
+# Reconcile an existing legacy Codex monitor shim. Native Monitor removes it;
+# bridge-only Codex refreshes its baked path. No-op when no agmsg shim exists.
 CODEX_SHIM="$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh"
 if [ -x "$CODEX_SHIM" ] && AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" status 2>/dev/null | grep -q '^installed:'; then
-  AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
-    && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+  if grep -q '^monitor=yes$' "$SKILL_DIR/scripts/drivers/types/codex/type.conf"; then
+    AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" remove >/dev/null 2>&1 \
+      && echo "  - removed legacy Codex monitor shim (~/.agents/bin/codex)"
+  else
+    AGMSG_CODEX_SHIM_INSTALL_QUIET=1 "$CODEX_SHIM" install >/dev/null 2>&1 \
+      && echo "  + refreshed Codex monitor shim (~/.agents/bin/codex)"
+  fi
 fi
 install_windows_helpers
 

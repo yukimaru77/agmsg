@@ -112,8 +112,8 @@ spawnable=yes
 detect=CODEX_SANDBOX CODEX_THREAD_ID
 detect_proc=codex codex-*
 hooks_file=.codex/hooks.json
-monitor=no
+monitor=yes
 stop_output=json
 hook_windows_wrap=yes
-delivery_modes=monitor turn off
+delivery_modes=monitor turn both off
 ```

@@ -287,21 +287,10 @@ emit_monitor_directive() {
   local project="$2"
   local watch="$SKILL_DIR/scripts/watch.sh"
 
-  # Claude Code exports CLAUDE_CODE_SESSION_ID for every subprocess of the
-  # session. Bake it directly into the command so the agent never has to
-  # invent a value — that lets SessionEnd find and clean the matching
-  # pidfile reliably. Fall back to a generated id when the env var isn't
-  # present (older CC, non-CC runtimes).
-  local session_id="${CLAUDE_CODE_SESSION_ID:-}"
-  if [ -z "$session_id" ]; then
-    session_id="agmsg-$(compat_uuidgen | tr 'A-Z' 'a-z')"
-  fi
-
-  # Key the watcher on the per-process instance id (#93) so parallel
-  # --continue/--resume sessions sharing a session_id stay isolated. Baking the
-  # composite into the directive matches SessionStart and makes the pidfile
-  # liveness check below see the real watcher (idempotent in watch.sh).
-  session_id="$(agmsg_normalize_instance_id "$session_id" "$type")"
+  # Resolve the id before invoking Monitor. Monitor workers do not necessarily
+  # inherit the parent agent's CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID.
+  local session_id
+  session_id="$("$SCRIPT_DIR/session-id.sh" "$type" "$project")"
 
   # Skip the directive when this CC session already has a live watcher —
   # invoking Monitor again would just spawn a duplicate and orphan the

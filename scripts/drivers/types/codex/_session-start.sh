@@ -6,8 +6,9 @@
 # agmsg_sqlite_mem, agmsg_resolve_node, agmsg_canonical_path, agmsg_agent_pid).
 # Defines agmsg_session_start, overriding session-start.sh's default no-op.
 #
-# Codex has no Monitor tool. When launched through codex-monitor.sh, the TUI is
-# attached to a shared app-server. Hand the bridge off so incoming agmsg rows
+# Native Codex Monitor follows the common SessionStart -> Monitor -> watch.sh
+# path. When launched through the legacy codex-monitor.sh wrapper, the TUI is
+# attached to a shared app-server so incoming agmsg rows
 # become turns in the current Codex thread without exposing socket/thread
 # plumbing to the user. With AGMSG_CODEX_BRIDGE_LAUNCHER=1 (set by
 # codex-monitor.sh) we only write a request file and let the out-of-sandbox
@@ -96,6 +97,8 @@ INNER_EOF
 }
 
 agmsg_session_start() {
+  [ "${AGMSG_CODEX_BRIDGE:-}" = "1" ] || return 0
+
   thread_id="$(agmsg_resolve_codex_thread "$PROJECT")"
   [ -n "$thread_id" ] || exit 0
   # A recorded role belongs to its recorded Codex thread. The in-sandbox

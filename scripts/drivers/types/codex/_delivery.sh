@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # codex delivery plug.
 #
-# codex keeps the default JSON event-hooks apply (agmsg_delivery_apply); it adds
-# enable/disable side effects (print the monitor shim setup on enable, stop the
-# bridge on disable) and replaces the runtime status summary with Codex bridge
-# liveness. Sourced into delivery.sh's context, so SKILL_DIR, SCRIPT_DIR,
-# RUN_DIR, agmsg_resolve_node, CODEX_MONITOR_DOC_URL and stop_codex_bridge are
-# in scope.
+# Native Codex Monitor uses the same JSON hooks and watch.sh stream as Claude
+# Code. The old app-server bridge remains available when explicitly selected by
+# codex-monitor.sh with AGMSG_CODEX_BRIDGE=1.
 # Args (both hooks): on_enable <mode> <type> <project>; on_disable <type> <project>.
 
-agmsg_delivery_on_enable() {
+agmsg_codex_bridge_on_enable() {
   echo "Codex monitor is enabled."
   echo "Add this shell function to your interactive shell profile, then restart the shell:"
   if "$SKILL_DIR/scripts/drivers/types/codex/codex-shim-install.sh" function; then
@@ -35,7 +32,7 @@ agmsg_delivery_on_enable() {
   echo "For more info: $CODEX_MONITOR_DOC_URL"
 }
 
-agmsg_delivery_on_disable() {
+agmsg_codex_bridge_on_disable() {
   local project="$2"
   local stopped
   stopped=$(stop_codex_bridge "$project")
@@ -87,7 +84,7 @@ agmsg_codex_shim_path_note() {
   fi
 }
 
-agmsg_delivery_runtime_status() {
+agmsg_codex_bridge_runtime_status() {
   local type="$1" project="$2"
   local pairs found=0 any_alive=0
   pairs=$("$SCRIPT_DIR/identities.sh" "$project" "$type" 2>/dev/null || true)
@@ -168,4 +165,31 @@ agmsg_delivery_runtime_status() {
   case "$mode_line" in
     "mode: monitor"|"mode: both") agmsg_codex_shim_path_note "$project" "$any_alive" ;;
   esac
+}
+
+agmsg_delivery_on_enable() {
+  if [ "${AGMSG_CODEX_BRIDGE:-}" = "1" ]; then
+    agmsg_codex_bridge_on_enable "$@"
+    return
+  fi
+  stop_codex_bridge "$3" >/dev/null 2>&1 || true
+  echo "Future sessions: SessionStart hook will auto-launch the watcher."
+  emit_monitor_directive "$2" "$3"
+}
+
+agmsg_delivery_on_disable() {
+  kill_all_watchers "$2" "$1" >/dev/null 2>&1 || true
+  if [ "${AGMSG_CODEX_BRIDGE:-}" = "1" ]; then
+    agmsg_codex_bridge_on_disable "$@"
+  else
+    stop_codex_bridge "$2" >/dev/null 2>&1 || true
+  fi
+}
+
+agmsg_delivery_runtime_status() {
+  if [ "${AGMSG_CODEX_BRIDGE:-}" = "1" ]; then
+    agmsg_codex_bridge_runtime_status "$@"
+  else
+    agmsg_delivery_runtime_status_default "$@"
+  fi
 }

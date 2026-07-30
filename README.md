@@ -60,7 +60,7 @@ npx agmsg
 #    OpenCode:     $agmsg
 ```
 
-That's it. The slash command prompts you for a team name and an agent name on first use, then asks you to pick a [delivery mode](#delivery-modes) (default on Claude Code and Codex: `monitor` — real-time push; Codex delivers it through a bridge). After that, you talk to your agent naturally — see [First run](#first-run) below.
+That's it. The slash command prompts you for a team name and an agent name on first use, then asks you to pick a [delivery mode](#delivery-modes) (default on Claude Code and Monitor-enabled Codex: `monitor` — real-time push). After that, you talk to your agent naturally — see [First run](#first-run) below.
 
 Prefer to inspect the code first, track the latest `main`, or pick a custom command name? See [Install](#install) below for the `setup.sh` one-liner, `git clone`, and the Claude Code plugin marketplace paths.
 
@@ -191,9 +191,9 @@ Where `actas` switches *this* session to a different role, `spawn` brings up a *
 
 `spawn <type> <name>` pre-joins `<name>`, then launches the target CLI with the actas slash command (`/<your-command> actas <name>`, matching your install command name) as its initial prompt. If the current session is inside **tmux**, it opens in a new pane (or `--window` for a new window, `--split h|v` for the direction); otherwise it opens a new **OS terminal** window.
 
-Pass `--boot-prompt <text>` to hand the new agent an initial task: the boot prompt becomes the actas slash command followed (newline-separated) by your text, so the agent claims its identity **and** acts on the task in the same first turn. This is the only way to give a one-shot goal to a **codex** peer, which has no Monitor and so never notices a message you `send` after it goes idle.
+Pass `--boot-prompt <text>` to hand the new agent an initial task: the boot prompt becomes the actas slash command followed (newline-separated) by your text, so the agent claims its identity **and** acts on the task in the same first turn.
 
-By default `spawn` **blocks until the new agent is actually listening** — its watcher attaches and touches a readiness sentinel — then prints `status=ready`, so you can send work the moment `spawn` returns without losing it to the agent's cold start. Use `--no-wait` for fire-and-forget, or `--ready-timeout <secs>` to bound the wait (default 90; on timeout it prints `status=timeout` and exits 3 so a caller can re-spawn). Codex skips the wait (it has no Monitor).
+By default `spawn` **blocks until the new agent is actually listening** — its watcher attaches and touches a readiness sentinel — then prints `status=ready`, so you can send work the moment `spawn` returns without losing it to the agent's cold start. Use `--no-wait` for fire-and-forget, or `--ready-timeout <secs>` to bound the wait (default 90; on timeout it prints `status=timeout` and exits 3 so a caller can re-spawn).
 
 Options: `--boot-prompt <text>` (initial task; see above), `--project <path>` (default: current project), `--team <team>` (auto-resolved when the project has a single team), and `--terminal <tmpl>` / `$AGMSG_TERMINAL` / config `spawn.terminal` to override the terminal command on the non-tmux path (a `{cmd}` placeholder is replaced with the path to the generated boot script). On macOS the default opens whichever terminal you're currently in (iTerm or Terminal, via `$TERM_PROGRAM`) using `open -a` — a plain app launch, so it does **not** trigger the Automation/AppleScript permission prompts that scripting the terminal directly would.
 
@@ -222,7 +222,7 @@ Eight of the nine agent types are spawnable — `claude-code`, `codex`, `grok-bu
 
 By default `despawn <name>` is **graceful**: it sends a `ctrl:despawn` control message to `<name>`, whose watcher drops its own role (releasing the actas lock and registration) and closes its own tmux pane — ending the agent. It blocks until the role is released, up to `--timeout <secs>` (default 30), then prints `status=ok`. If the member's watcher never responds it prints `status=timeout` and exits 3 — retry with `--force`.
 
-`--force` skips the message and tears the member down from the placement recorded at spawn time: it kills the member's tmux pane/window and drops its registration. Use it when the member's watcher can't respond — a dead watcher, or a **codex** member (no Monitor, so graceful has nothing to act on). A member started by hand (no spawn placement record) can't be `--force`d; despawn says so and leaves it for you to close.
+`--force` skips the message and tears the member down from the placement recorded at spawn time: it kills the member's tmux pane/window and drops its registration. Use it when the member's watcher can't respond. A member started by hand (no spawn placement record) can't be `--force`d; despawn says so and leaves it for you to close.
 
 Despawn only acts on the named member — the session running `despawn` is never torn down, and a broad-subscription watcher ignores a `ctrl:despawn` aimed at another role.
 
@@ -245,15 +245,15 @@ How incoming messages reach your agent. Pick one at first join via the prompt, o
 
 | mode | mechanism | latency | who it's for |
 |---|---|---|---|
-| **`monitor`** (default on Claude Code) | SessionStart hook → Monitor tool → blocking SQLite stream | ~5s | Claude Code users wanting real-time push |
-| **`turn`** (default on Codex / Copilot CLI / OpenCode) | Stop hook fires `check-inbox.sh` between assistant turns | until your next interaction | Codex / Copilot CLI / OpenCode (no Monitor tool); Claude Code users on a quieter loop |
+| **`monitor`** (default on Claude Code and Codex builds with Monitor) | SessionStart hook → Monitor tool → blocking SQLite stream | ~5s | Claude Code and Monitor-enabled Codex users wanting real-time push |
+| **`turn`** (default on Codex builds without Monitor / Copilot CLI / OpenCode) | Stop hook fires `check-inbox.sh` between assistant turns | until your next interaction | Runtimes without Monitor; Claude Code/Codex users on a quieter loop |
 | **`both`** | monitor primary, turn as per-session safety net | ~5s; falls back to turn-end on watcher failure | belt-and-suspenders |
 | **`off`** | no automatic delivery | manual `/agmsg` only | minimalists |
 
 ### Picking a mode
 
 ```
-/agmsg mode monitor    — switch this project to real-time push (Claude Code)
+/agmsg mode monitor    — switch this project to real-time push (Claude Code or Monitor-enabled Codex)
 /agmsg mode turn       — switch to between-turns checking
 /agmsg mode both       — monitor with turn as a safety net
 /agmsg mode off        — manual /agmsg only
@@ -300,11 +300,11 @@ The command updates `db/config.yaml`, rewrites the project's hook entries, and p
 $agmsg                          — or /skills → agmsg
 ```
 
-Codex supports `mode monitor` through an app-server bridge, plus `mode turn` and `mode off`.
+Monitor-enabled Codex builds support the same native `mode monitor`, `mode both`, `mode turn`, and `mode off` flow as Claude Code. The SessionStart hook asks Codex to launch `watch.sh` through its Monitor tool; no shell shim or app-server is needed.
 
-> ⚠️ **Monitor mode changes how Codex starts — enable it knowing that.** Codex has no Monitor tool, so `mode monitor` prints a shell function that makes `codex` route through agmsg's monitor shim in your interactive shell. In monitor-mode projects the shim routes interactive launches through a bridge that turns incoming agmsg messages into turns on the current Codex thread; `codex exec` and non-monitor projects pass straight through to the real Codex. It depends on Codex app-server behavior and has a known limitation (orphans on TUI close — #149).
+For stock Codex releases without a Monitor tool, the previous app-server bridge remains available as a legacy opt-in through `codex-monitor.sh`.
 
-If you prefer a global PATH shim, run `~/.agents/skills/<cmd>/scripts/drivers/types/codex/codex-shim-install.sh install` and put `~/.agents/bin` before the real Codex binary on PATH. You can also launch with `~/.agents/skills/<cmd>/scripts/drivers/types/codex/codex-monitor.sh`. Codex sandboxing must allow writes to the skill's `db/`, `teams/`, and `run/` dirs — `install.sh` configures those `writable_roots` when `~/.codex/config.toml` exists. Setup notes and internals: [docs/codex-monitor-beta.md](docs/codex-monitor-beta.md).
+Codex sandboxing must allow writes to the skill's `db/`, `teams/`, and `run/` dirs — `install.sh` configures those `writable_roots` when `~/.codex/config.toml` exists. Legacy bridge setup notes and internals remain in [docs/codex-monitor-beta.md](docs/codex-monitor-beta.md).
 
 ### GitHub Copilot CLI
 

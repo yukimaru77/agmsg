@@ -71,7 +71,7 @@ fi
 # Read hook input JSON from stdin. The session id field name differs by vendor:
 # Claude Code emits snake_case "session_id"; Grok Build (and Cursor) emit
 # camelCase "sessionId". Try snake first (claude-code unaffected), then camel,
-# then the GROK_SESSION_ID env Grok injects into every hook.
+# then the session environment exposed by monitor-capable runtimes.
 INPUT=$(cat 2>/dev/null || true)
 SESSION_ID=""
 if [ -n "$INPUT" ]; then
@@ -82,6 +82,15 @@ if [ -n "$INPUT" ]; then
     | sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)
 fi
+if [ -z "$SESSION_ID" ]; then
+  case "$TYPE" in
+    claude-code) SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}" ;;
+    codex) SESSION_ID="${CODEX_THREAD_ID:-}" ;;
+    grok-build) SESSION_ID="${GROK_SESSION_ID:-}" ;;
+  esac
+fi
+# Backward-compatible generic fallback used by shared resolver tests and older
+# Grok hook configurations that invoke the common script with another type.
 [ -z "$SESSION_ID" ] && SESSION_ID="${GROK_SESSION_ID:-}"
 # Fallback so the instruction is still actionable even outside a hook flow.
 [ -z "$SESSION_ID" ] && SESSION_ID="unknown-$$"

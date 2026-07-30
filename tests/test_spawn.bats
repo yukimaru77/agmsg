@@ -123,7 +123,7 @@ teardown() {
   local quoted="$TEST_SKILL_DIR/pro'j"
   mkdir -p "$quoted"
   bash "$SCRIPTS/join.sh" myteam existing claude-code "$quoted"
-  run bash "$SCRIPTS/spawn.sh" claude-code alice --project "$quoted"
+  run bash "$SCRIPTS/spawn.sh" claude-code alice --project "$quoted" --no-wait
   [[ "$output" != *"no team is registered"* ]]
   [[ "$output" != *"syntax error"* ]]
 }
@@ -644,7 +644,7 @@ YAML
 
 @test "spawn: codex spawns the codex CLI" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" --no-wait
   [ "$status" -eq 0 ]
   boot="$(cat "$CAPTURE")"
   [ -f "$boot" ]
@@ -671,7 +671,7 @@ YAML
   # so match the "<prefix><cmd>\ actas" token — the cd path's /<cmd>/proj has no
   # "\ actas" and so can't false-match the slash form.)
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" --no-wait
   [ "$status" -eq 0 ]
   boot="$(cat "$CAPTURE")"
   [ -f "$boot" ]
@@ -716,7 +716,7 @@ YAML
   # '$'-prefixed prompts are not path-shaped, so no exclusion is emitted —
   # keeps the boot script byte-identical for agentskills CLIs.
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" --no-wait
   [ "$status" -eq 0 ]
   boot="$(cat "$CAPTURE")"
   [ -f "$boot" ]
@@ -820,11 +820,14 @@ EOF
   [[ "$output" != *"status="* ]]
 }
 
-@test "spawn: codex skips the readiness wait (no Monitor)" {
+@test "spawn: codex waits for its native Monitor watcher" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
-  run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ"
+  mkdir -p "$TEST_SKILL_DIR/run"
+  local ready="$TEST_SKILL_DIR/run/ready.myteam__reviewer"
+  run env -u TMUX bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" \
+    --ready-timeout 10 --terminal "touch $ready # {cmd}"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipping readiness wait"* ]]
+  [[ "$output" == *"status=ready"* ]]
 }
 
 @test "spawn: grok-build skips the readiness wait even without --no-wait (monitor=no)" {
@@ -846,7 +849,7 @@ EOF
 # spawn folds an optional initial task into the agent's first prompt: the boot
 # prompt becomes the actas slash command followed (newline-separated) by the
 # task, so the new agent claims its identity AND starts the task in one turn —
-# the only way to hand a one-shot goal to a no-Monitor peer (codex). These tests
+# an atomic way to claim a role and hand it a one-shot goal. These tests
 # assert on the generated boot script the terminal template is handed (captured
 # via record.sh), the same way the actas-prompt tests above do.
 
@@ -873,7 +876,7 @@ EOF
 @test "spawn: --boot-prompt folds the initial task into the boot prompt (codex)" {
   bash "$SCRIPTS/join.sh" myteam existing codex "$PROJ"
   run bash "$SCRIPTS/spawn.sh" codex reviewer --project "$PROJ" \
-    --boot-prompt "REVIEW_THE_DIFF"
+    --no-wait --boot-prompt "REVIEW_THE_DIFF"
   [ "$status" -eq 0 ]
   boot="$(cat "$CAPTURE")"
   [ -f "$boot" ]

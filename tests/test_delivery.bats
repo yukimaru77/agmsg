@@ -992,7 +992,7 @@ EOF
   AGMSG_CODEX_BRIDGE_APP_SERVER="unix://$TEST_SKILL_DIR/run/codex-app-server.test.sock" \
   AGMSG_CODEX_BRIDGE_CMD="$fake" \
   AGMSG_TEST_LOG="$log" \
-    env -u CODEX_THREAD_ID bash "$SCRIPTS/session-start.sh" codex "$linkproj" >/dev/null
+    env -u CODEX_THREAD_ID AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/session-start.sh" codex "$linkproj" >/dev/null
 
   for _ in {1..20}; do
     [ -f "$log" ] && break
@@ -1857,7 +1857,7 @@ EOF
   grep -q -- "--inline-inbox" "$log"
 }
 
-@test "session-start.sh for codex stays quiet without monitor launcher env" {
+@test "session-start.sh for codex emits native Monitor directive without bridge env" {
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   local fake="$TEST_SKILL_DIR/fake-codex-bridge"
   local log="$TEST_SKILL_DIR/fake-codex-bridge.log"
@@ -1867,34 +1867,54 @@ printf '%s\n' "$*" >> "$AGMSG_TEST_LOG"
 EOF
   chmod +x "$fake"
 
-  AGMSG_CODEX_BRIDGE_CMD="$fake" AGMSG_TEST_LOG="$log" CODEX_THREAD_ID="thread-123" \
-    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" >/dev/null
+  run env AGMSG_CODEX_BRIDGE_CMD="$fake" AGMSG_TEST_LOG="$log" CODEX_THREAD_ID="thread-123" \
+    bash "$SCRIPTS/session-start.sh" codex "$TEST_PROJECT" <<<'{}'
 
   [ ! -f "$log" ]
+  [[ "$output" == *"AGMSG monitor mode"* ]]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" == *"thread-123"* ]]
 }
 
-@test "delivery set monitor (codex): installs SessionStart and prints Codex shell function" {
+@test "delivery set monitor (codex): installs SessionStart and emits native Monitor directive" {
   run bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Codex monitor is enabled"* ]]
-  [[ "$output" == *"codex() {"* ]]
-  [[ "$output" == *"codex-shim.sh"* ]]
-  [[ "$output" == *"launch with codex"* ]]
-  [[ "$output" == *"Optional global PATH shim is still available"* ]]
-  [[ "$output" == *"For more info: https://github.com/fujibee/agmsg/blob/main/docs/codex-monitor-beta.md"* ]]
-  [[ "$output" != *"Monitor tool"* ]]
+  [[ "$output" == *"SessionStart hook will auto-launch the watcher"* ]]
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  [[ "$output" == *"Monitor tool"* ]]
+  [[ "$output" == *"watch.sh"* ]]
+  [[ "$output" != *"codex() {"* ]]
   [ ! -e "$HOME/.agents/bin/codex" ]
   local hook_file="$TEST_PROJECT/.codex/hooks.json"
   [ -f "$hook_file" ]
   grep -q "session-start.sh" "$hook_file"
 }
 
-@test "delivery set both (codex): rejected by the delivery_modes gate" {
-  # codex's manifest omits 'both' (delivery_modes=monitor turn off), so the
-  # central gate in delivery.sh rejects it before any file is touched.
+@test "delivery set both (codex): installs native Monitor plus turn fallback" {
   run bash "$SCRIPTS/delivery.sh" set both codex "$TEST_PROJECT"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"not supported for codex"* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AGMSG-DIRECTIVE"* ]]
+  local hook_file="$TEST_PROJECT/.codex/hooks.json"
+  grep -q "session-start.sh" "$hook_file"
+  grep -q "check-inbox.sh" "$hook_file"
+}
+
+@test "delivery set monitor (codex): bakes CODEX_THREAD_ID into Monitor command" {
+  CODEX_THREAD_ID="codex-native-thread-123" run bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"codex-native-thread-123"* ]]
+  [[ "$output" != *'\$CODEX_THREAD_ID'* ]]
+}
+
+@test "monitor-command.sh: prints a literal role-filtered Codex watch command" {
+  CODEX_THREAD_ID="codex-native-thread-456" run bash "$SCRIPTS/monitor-command.sh" codex "$TEST_PROJECT" reviewer
+  [ "$status" -eq 0 ]
+  eval "set -- $output"
+  [[ "$1" == */scripts/watch.sh ]]
+  [[ "$2" == *"codex-native-thread-456"* ]]
+  [ "$3" = "$TEST_PROJECT" ]
+  [ "$4" = codex ]
+  [ "$5" = reviewer ]
 }
 
 @test "delivery status (codex): live bridge reports alive and suppresses watch count" {
@@ -1917,7 +1937,7 @@ type=codex
 EOF
   printf '%s\n' 99999999 > "$TEST_SKILL_DIR/run/watch.fake.pid"
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
   [[ "$output" == *"Codex bridge: team/alice alive (pid $bpid)"* ]]
@@ -1946,7 +1966,7 @@ name=alice
 type=codex
 EOF
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
   [[ "$output" == *"Codex bridge: team/alice stale pidfile (pid $dead_pid not running)"* ]]
@@ -1967,7 +1987,7 @@ name=alice
 type=codex
 EOF
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
   [[ "$output" == *"Codex bridge: team/alice stale pidfile (metadata mismatch)"* ]]
@@ -1990,7 +2010,7 @@ name=alice
 type=codex
 EOF
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Codex bridge: team/alice"* ]]
   [[ "$output" != *"metadata mismatch"* ]]
@@ -2016,7 +2036,7 @@ name=alice
 type=codex
 EOF
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Codex bridge: team/alice"* ]]
   [[ "$output" != *"metadata mismatch"* ]]
@@ -2029,7 +2049,7 @@ EOF
 
   printf '%s\n' "$$" > "$TEST_SKILL_DIR/run/codex-bridge.team.alice.pid"
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
   [[ "$output" == *"Codex bridge: team/alice stale pidfile (missing metadata)"* ]]
@@ -2040,7 +2060,7 @@ EOF
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
   [[ "$output" == *"Codex bridge: team/alice not running"* ]]
@@ -2064,7 +2084,7 @@ EOF
   printf '#!/usr/bin/env bash\necho real\n' > "$other_bin/codex"
   chmod +x "$other_bin/codex"
 
-  PATH="$other_bin:$HOME/.agents/bin:$PATH" run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 PATH="$other_bin:$HOME/.agents/bin:$PATH" run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Note: an agmsg codex shim is installed"* ]]
   [[ "$output" == *"$other_bin/codex"* ]]
@@ -2078,7 +2098,7 @@ EOF
   cp "$TYPES/codex/codex-shim.sh" "$HOME/.agents/bin/codex"
   chmod +x "$HOME/.agents/bin/codex"
 
-  PATH="$HOME/.agents/bin:$PATH" run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 PATH="$HOME/.agents/bin:$PATH" run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" != *"Note: an agmsg codex shim"* ]]
 }
@@ -2090,7 +2110,7 @@ EOF
   bash "$SCRIPTS/join.sh" team alice codex "$TEST_PROJECT" >/dev/null
   bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" != *"Note: an agmsg codex shim"* ]]
 }
@@ -2128,7 +2148,7 @@ name=alice
 type=codex
 EOF
 
-  PATH="$other_bin:$HOME/.agents/bin:$PATH" run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 PATH="$other_bin:$HOME/.agents/bin:$PATH" run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Codex bridge: team/alice alive"* ]]
   [[ "$output" != *"Note: an agmsg codex shim"* ]]
@@ -2157,7 +2177,7 @@ name=alice
 type=codex
 EOF
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Codex bridge: team/alice alive (pid $bpid)"* ]]
   [[ "$output" == *"Codex bridge: team/bob not running"* ]]
@@ -2170,7 +2190,7 @@ EOF
 @test "delivery status (codex): monitor mode with no identities is explicit" {
   bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT" >/dev/null
 
-  run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
+  AGMSG_CODEX_BRIDGE=1 run bash "$SCRIPTS/delivery.sh" status codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"mode: monitor"* ]]
   [[ "$output" == *"Codex bridge: no identities registered for this project"* ]]
@@ -2257,7 +2277,7 @@ EOF
   # Node preflight: the bridge is a Node program; enabling monitor without Node
   # must flag it rather than silently never starting. AGMSG_CODEX_NODE points the
   # check at a binary that does not exist. See #41.
-  run env AGMSG_CODEX_NODE=__agmsg_no_such_node__ bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
+  run env AGMSG_CODEX_BRIDGE=1 AGMSG_CODEX_NODE=__agmsg_no_such_node__ bash "$SCRIPTS/delivery.sh" set monitor codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"WARNING: Node.js"* ]]
   [[ "$output" == *"monitor delivery will NOT start"* ]]
@@ -2282,7 +2302,7 @@ EOF
   : > "$TEST_SKILL_DIR/run/codex-app-server.$h.port"
   : > "$TEST_SKILL_DIR/run/codex-app-server.$h.version"
 
-  run bash "$SCRIPTS/delivery.sh" set off codex "$TEST_PROJECT"
+  run env AGMSG_CODEX_BRIDGE=1 bash "$SCRIPTS/delivery.sh" set off codex "$TEST_PROJECT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Stopped 1 Codex bridge"* ]]
   [[ "$output" == *"shim"* ]]
